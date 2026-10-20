@@ -114,7 +114,7 @@ export function tokenizeFilename(filename: string): string[] {
  * Dosya isimlerinden dinamik olarak yıl desenini (örn: 2018..2030) çıkarır.
  */
 export function extractYear(filename: string): string | null {
-  const match = filename.match(/\b(19\d\d|20\d\d)\b/)
+  const match = filename.match(/(?:^|[^0-9])(19\d\d|20\d\d)(?:[^0-9]|$)/)
   return match ? match[1] : null
 }
 

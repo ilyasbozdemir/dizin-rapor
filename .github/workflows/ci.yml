@@ -1,0 +1,49 @@
+name: CI - TypeCheck & Test
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  validate:
+    name: Lint, Typecheck & Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+
+      - name: Install Dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Python Scripts Syntax Verification
+        run: |
+          python -m py_compile scanner.py migrate_e_to_d.py birlestir.py
+
+      - name: TypeScript TypeCheck
+        run: pnpm typecheck
+
+      - name: Run Core Unit Tests
+        run: pnpm test
+
+      - name: Build Application Bundle
+        run: pnpm build

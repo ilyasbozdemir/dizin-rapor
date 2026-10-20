@@ -8,6 +8,7 @@
     "start": "pnpm --filter app-desktop start",
     "build": "pnpm --filter app-desktop build",
     "typecheck": "pnpm -r typecheck",
+    "test": "pnpm --filter @arsiv/core test",
     "py:scan": "python scanner.py",
     "py:plan": "python migrate_e_to_d.py",
     "py:birlestir": "python birlestir.py faz1 --kaynak E:\\ --hedef D:\\E_BIRLESTIRME --duzen konu-tip --onizleme"
