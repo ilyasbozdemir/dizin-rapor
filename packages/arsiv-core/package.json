@@ -1,0 +1,17 @@
+{
+  "name": "@arsiv/core",
+  "version": "1.0.0",
+  "description": "Paylaşılan tipler, sınıflandırma kuralları ve yol yardımcıları",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.3"
+  }
+}
