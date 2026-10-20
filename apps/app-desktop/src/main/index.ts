@@ -408,3 +408,101 @@ ipcMain.handle('get-migration-reports', async () => {
   }
   return reports
 })
+
+// 6. Real-time File Existence & Direct Management
+ipcMain.handle('check-files-exist', async (_event, filePaths: string[]) => {
+  const result: Record<string, boolean> = {}
+  if (!Array.isArray(filePaths)) return result
+  for (const fp of filePaths) {
+    try {
+      result[fp] = fs.existsSync(fp)
+    } catch {
+      result[fp] = false
+    }
+  }
+  return result
+})
+
+ipcMain.handle('move-files', async (_event, { filePaths, destinationFolder }: { filePaths: string[]; destinationFolder?: string }) => {
+  let successCount = 0
+  let failCount = 0
+  const errors: { path: string; error: string }[] = []
+
+  for (const src of filePaths) {
+    try {
+      if (!fs.existsSync(src)) {
+        failCount++
+        errors.push({ path: src, error: 'Dosya bulunamadı' })
+        continue
+      }
+
+      let destDir = destinationFolder
+      if (!destDir) {
+        // Default to _SILINECEK_KOPYALAR on the source drive
+        const driveMatch = src.match(/^([a-zA-Z]:)/)
+        const drive = driveMatch ? driveMatch[1] : 'C:'
+        destDir = join(`${drive}\\`, '_SILINECEK_KOPYALAR')
+      }
+
+      if (!fs.existsSync(destDir)) {
+        fs.mkdirSync(destDir, { recursive: true })
+      }
+
+      const fileName = basename(src)
+      let destPath = join(destDir, fileName)
+
+      // If file with same name already exists in destination, append timestamp
+      if (fs.existsSync(destPath)) {
+        const ext = extname(fileName)
+        const nameWithoutExt = basename(fileName, ext)
+        destPath = join(destDir, `${nameWithoutExt}_${Date.now()}${ext}`)
+      }
+
+      try {
+        fs.renameSync(src, destPath)
+      } catch (e: any) {
+        if (e.code === 'EXDEV') {
+          fs.copyFileSync(src, destPath)
+          fs.unlinkSync(src)
+        } else {
+          throw e
+        }
+      }
+
+      successCount++
+    } catch (err: any) {
+      failCount++
+      errors.push({ path: src, error: err.message })
+    }
+  }
+
+  return { success: failCount === 0, successCount, failCount, errors, targetFolder: destinationFolder }
+})
+
+ipcMain.handle('delete-files', async (_event, { filePaths, useRecycleBin = true }: { filePaths: string[]; useRecycleBin?: boolean }) => {
+  let successCount = 0
+  let failCount = 0
+  const errors: { path: string; error: string }[] = []
+
+  for (const src of filePaths) {
+    try {
+      if (!fs.existsSync(src)) {
+        failCount++
+        errors.push({ path: src, error: 'Dosya bulunamadı' })
+        continue
+      }
+
+      if (useRecycleBin) {
+        await shell.trashItem(src)
+      } else {
+        fs.unlinkSync(src)
+      }
+      successCount++
+    } catch (err: any) {
+      failCount++
+      errors.push({ path: src, error: err.message })
+    }
+  }
+
+  return { success: failCount === 0, successCount, failCount, errors }
+})

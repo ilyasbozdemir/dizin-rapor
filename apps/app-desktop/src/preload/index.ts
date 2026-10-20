@@ -25,6 +25,9 @@ export interface IApi {
   openFile: (filePath: string) => Promise<string>
   showInFolder: (filePath: string) => Promise<boolean>
   getMigrationReports: () => Promise<any>
+  checkFilesExist: (filePaths: string[]) => Promise<Record<string, boolean>>
+  moveFiles: (params: { filePaths: string[]; destinationFolder?: string }) => Promise<{ success: boolean; successCount: number; failCount: number; errors: { path: string; error: string }[]; targetFolder?: string }>
+  deleteFiles: (params: { filePaths: string[]; useRecycleBin?: boolean }) => Promise<{ success: boolean; successCount: number; failCount: number; errors: { path: string; error: string }[] }>
 }
 
 const api: IApi = {
@@ -47,7 +50,10 @@ const api: IApi = {
   removeFileTag: (params) => ipcRenderer.invoke('remove-file-tag', params),
   openFile: (filePath) => ipcRenderer.invoke('open-file', filePath),
   showInFolder: (filePath) => ipcRenderer.invoke('show-in-folder', filePath),
-  getMigrationReports: () => ipcRenderer.invoke('get-migration-reports')
+  getMigrationReports: () => ipcRenderer.invoke('get-migration-reports'),
+  checkFilesExist: (filePaths) => ipcRenderer.invoke('check-files-exist', filePaths),
+  moveFiles: (params) => ipcRenderer.invoke('move-files', params),
+  deleteFiles: (params) => ipcRenderer.invoke('delete-files', params)
 }
 
 contextBridge.exposeInMainWorld('api', api)

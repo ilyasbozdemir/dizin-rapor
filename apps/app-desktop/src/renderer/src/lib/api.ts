@@ -23,6 +23,9 @@ export interface IApi {
   openFile: (filePath: string) => Promise<string>
   showInFolder: (filePath: string) => Promise<boolean>
   getMigrationReports: () => Promise<any>
+  checkFilesExist: (filePaths: string[]) => Promise<Record<string, boolean>>
+  moveFiles: (params: { filePaths: string[]; destinationFolder?: string }) => Promise<{ success: boolean; successCount: number; failCount: number; errors: { path: string; error: string }[]; targetFolder?: string }>
+  deleteFiles: (params: { filePaths: string[]; useRecycleBin?: boolean }) => Promise<{ success: boolean; successCount: number; failCount: number; errors: { path: string; error: string }[] }>
 }
 
 // Preset mock data for browser preview or fallback
@@ -278,6 +281,26 @@ const mockApi: IApi = {
 
   getMigrationReports: async () => {
     return MOCK_REPORTS
+  },
+
+  checkFilesExist: async (filePaths: string[]) => {
+    const res: Record<string, boolean> = {}
+    filePaths.forEach((p) => {
+      res[p] = true // mock assumption: all exist initially
+    })
+    return res
+  },
+
+  moveFiles: async ({ filePaths, destinationFolder }: { filePaths: string[]; destinationFolder?: string }) => {
+    console.log(`[MockApi] moveFiles to ${destinationFolder || '_SILINECEK_KOPYALAR'}:`, filePaths)
+    alert(`${filePaths.length} adet dosya başarıyla '${destinationFolder || '_SILINECEK_KOPYALAR'}' klasörüne taşındı!`)
+    return { success: true, successCount: filePaths.length, failCount: 0, errors: [], targetFolder: destinationFolder }
+  },
+
+  deleteFiles: async ({ filePaths, useRecycleBin = true }: { filePaths: string[]; useRecycleBin?: boolean }) => {
+    console.log(`[MockApi] deleteFiles (useRecycleBin=${useRecycleBin}):`, filePaths)
+    alert(`${filePaths.length} adet dosya ${useRecycleBin ? 'Geri Dönüşüm Kutusuna' : 'kalıcı olarak'} silindi!`)
+    return { success: true, successCount: filePaths.length, failCount: 0, errors: [] }
   }
 }
 

@@ -252,6 +252,9 @@ export default function App() {
   const [isDuplicateSafeMode, setIsDuplicateSafeMode] = useState<boolean>(true);
   const [copiedScript, setCopiedScript] = useState<boolean>(false);
   const [showScriptPreview, setShowScriptPreview] = useState<boolean>(false);
+  const [fileExistMap, setFileExistMap] = useState<Record<string, boolean>>({});
+  const [isCheckingLive, setIsCheckingLive] = useState<boolean>(false);
+  const [isExecutingAction, setIsExecutingAction] = useState<boolean>(false);
 
   const loadReports = async () => {
     setLoadingReports(true);
@@ -279,6 +282,79 @@ export default function App() {
   const duplicateList = useMemo(() => {
     return (reports?.duplicate?.duplicates as any[]) || [];
   }, [reports]);
+
+  // Live real-time check of all duplicate files on disk
+  const checkLiveExistence = async (list = duplicateList) => {
+    const allPaths: string[] = [];
+    list.forEach((g: any) => {
+      (g.files || []).forEach((f: any) => {
+        if (f.path) allPaths.push(f.path);
+      });
+    });
+    if (allPaths.length === 0) return;
+    setIsCheckingLive(true);
+    try {
+      const res = await api.checkFilesExist(allPaths);
+      if (res) {
+        setFileExistMap(res);
+      }
+    } catch {}
+    setIsCheckingLive(false);
+  };
+
+  useEffect(() => {
+    if (duplicateList.length > 0) {
+      checkLiveExistence(duplicateList);
+    }
+  }, [duplicateList]);
+
+  // Direct move action from UI
+  const handleDirectMove = async (pathsToMove?: string[]) => {
+    const targetPaths = pathsToMove || selectedDuplicatePaths;
+    if (targetPaths.length === 0) {
+      alert("Lütfen taşınacak en az bir dosya seçin.");
+      return;
+    }
+    const confirmMsg = `${targetPaths.length} adet mükerrer dosya diskin kökündeki '_SILINECEK_KOPYALAR' klasörüne taşınacak.\n\nOnaylıyor musunuz?`;
+    if (!window.confirm(confirmMsg)) return;
+
+    setIsExecutingAction(true);
+    try {
+      const res = await api.moveFiles({ filePaths: targetPaths });
+      alert(
+        `İşlem Tamamlandı!\n✓ Başarıyla Taşınan: ${res.successCount} dosya\n❌ Hata: ${res.failCount}\n\nHedef: ${res.targetFolder || '_SILINECEK_KOPYALAR'}`
+      );
+      setSelectedDuplicatePaths((prev) => prev.filter((p) => !targetPaths.includes(p)));
+      await checkLiveExistence();
+    } catch (err: any) {
+      alert("Taşıma sırasında hata oluştu: " + err.message);
+    }
+    setIsExecutingAction(false);
+  };
+
+  // Direct delete action from UI (Recycle Bin by default)
+  const handleDirectDelete = async (pathsToDelete?: string[]) => {
+    const targetPaths = pathsToDelete || selectedDuplicatePaths;
+    if (targetPaths.length === 0) {
+      alert("Lütfen silinecek en az bir dosya seçin.");
+      return;
+    }
+    const confirmMsg = `${targetPaths.length} adet dosya işletim sisteminin Geri Dönüşüm Kutusuna (Çöp Kutusu) taşınacak.\n\nİstediğiniz zaman geri alabilirsiniz. Devam edilsin mi?`;
+    if (!window.confirm(confirmMsg)) return;
+
+    setIsExecutingAction(true);
+    try {
+      const res = await api.deleteFiles({ filePaths: targetPaths, useRecycleBin: true });
+      alert(
+        `İşlem Tamamlandı!\n✓ Geri Dönüşüm Kutusuna Taşınan: ${res.successCount} dosya\n❌ Hata: ${res.failCount}`
+      );
+      setSelectedDuplicatePaths((prev) => prev.filter((p) => !targetPaths.includes(p)));
+      await checkLiveExistence();
+    } catch (err: any) {
+      alert("Silme sırasında hata oluştu: " + err.message);
+    }
+    setIsExecutingAction(false);
+  };
 
   const selectedSizeFormatted = useMemo(() => {
     let bytes = 0;
@@ -2321,12 +2397,56 @@ export default function App() {
                     {selectedDuplicatePaths.length} kopya seçili ({selectedSizeFormatted})
                   </span>
                   <button
+                    onClick={() => checkLiveExistence()}
+                    disabled={isCheckingLive}
+                    className="px-3 py-1.5 rounded-lg border border-slate-200 dark:border-white/10 hover:bg-slate-100 dark:hover:bg-white/5 text-slate-700 dark:text-gray-300 text-xs font-semibold flex items-center gap-1.5 transition"
+                    title="Diskteki dosyaların anlık var olup olmadığını kontrol eder"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${isCheckingLive ? "animate-spin text-cyan-500" : ""}`} />
+                    <span>{isCheckingLive ? "Kontrol Ediliyor..." : "Canlı Disk Kontrolü"}</span>
+                  </button>
+                  <button
                     onClick={loadReports}
                     disabled={loadingReports}
                     className="p-2 rounded-lg border border-slate-200 dark:border-white/10 hover:bg-slate-100 dark:hover:bg-white/5 text-slate-600 dark:text-gray-300 transition"
                     title="Raporu Yeniden Yükle"
                   >
                     <RefreshCw className={`w-4 h-4 ${loadingReports ? "animate-spin" : ""}`} />
+                  </button>
+                </div>
+              </div>
+
+              {/* Direct OS Execution Toolbar (No terminal required) */}
+              <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30">
+                <div className="flex items-center gap-2">
+                  <HardDrive className="w-4 h-4 text-amber-500 shrink-0" />
+                  <div>
+                    <span className="text-xs font-bold text-amber-800 dark:text-amber-300 block">
+                      ⚡ Doğrudan İşletim Sistemi Eylemleri (Terminal Gerektirmez)
+                    </span>
+                    <span className="text-[11px] text-amber-700/80 dark:text-amber-400/80">
+                      Arayüz üzerinden tek tıkla kopyaları karantinaya taşıyabilir veya Çöp Kutusuna gönderebilirsiniz.
+                    </span>
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    onClick={() => handleDirectMove()}
+                    disabled={selectedDuplicatePaths.length === 0 || isExecutingAction}
+                    className="px-3.5 py-1.5 rounded-lg text-xs font-bold bg-amber-600 hover:bg-amber-500 text-white shadow-xs transition flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
+                    title="Seçilen kopyaları diskin kökündeki '_SILINECEK_KOPYALAR' klasörüne taşır"
+                  >
+                    <Archive className="w-3.5 h-3.5" />
+                    <span>Seçilenleri Karantinaya Taşı ({selectedDuplicatePaths.length})</span>
+                  </button>
+                  <button
+                    onClick={() => handleDirectDelete()}
+                    disabled={selectedDuplicatePaths.length === 0 || isExecutingAction}
+                    className="px-3.5 py-1.5 rounded-lg text-xs font-bold bg-rose-600 hover:bg-rose-500 text-white shadow-xs transition flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
+                    title="Seçilen kopyaları Windows Çöp Kutusuna (Geri Dönüşüm) taşır"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Çöp Kutusuna Gönder ({selectedDuplicatePaths.length})</span>
                   </button>
                 </div>
               </div>
@@ -2470,7 +2590,7 @@ export default function App() {
               <div className="space-y-3">
                 <div className="flex items-center justify-between text-xs font-bold text-slate-600 dark:text-gray-400 px-1">
                   <span>Mükerrer Dosya Grupları ({duplicateList.length} grup tespit edildi)</span>
-                  <span>Silmek istediğiniz dosyaların solundaki kutucuğu işaretleyin</span>
+                  <span>Silmek veya taşımak istediğiniz dosyaları seçin</span>
                 </div>
 
                 {duplicateList.length === 0 ? (
@@ -2524,35 +2644,48 @@ export default function App() {
                         <div className="p-2 space-y-1.5">
                           {files.map((f: any, fIdx: number) => {
                             const isSelected = selectedDuplicatePaths.includes(f.path);
+                            const exists = fileExistMap[f.path] !== false; // default true until checked
+
                             return (
                               <div
                                 key={f.path || fIdx}
-                                onClick={() => toggleDuplicatePath(f.path)}
-                                className={`flex items-center justify-between gap-3 p-2 rounded-lg border text-xs cursor-pointer transition select-none ${
-                                  isSelected
-                                    ? "bg-rose-50/80 dark:bg-rose-950/30 border-rose-200 dark:border-rose-900/60"
-                                    : "bg-white dark:bg-[#121929] border-slate-200 dark:border-white/5 hover:border-slate-300 dark:hover:border-white/20"
+                                onClick={() => exists && toggleDuplicatePath(f.path)}
+                                className={`flex items-center justify-between gap-3 p-2 rounded-lg border text-xs transition select-none ${
+                                  !exists
+                                    ? "bg-slate-100/60 dark:bg-white/[0.02] border-slate-200 dark:border-white/5 opacity-60 cursor-default"
+                                    : isSelected
+                                    ? "bg-rose-50/80 dark:bg-rose-950/30 border-rose-200 dark:border-rose-900/60 cursor-pointer"
+                                    : "bg-white dark:bg-[#121929] border-slate-200 dark:border-white/5 hover:border-slate-300 dark:hover:border-white/20 cursor-pointer"
                                 }`}
                               >
                                 <div className="flex items-center gap-2.5 min-w-0 flex-1">
                                   <input
                                     type="checkbox"
-                                    checked={isSelected}
+                                    disabled={!exists}
+                                    checked={isSelected && exists}
                                     onChange={() => {}}
-                                    className="w-4 h-4 rounded text-rose-600 accent-rose-500 cursor-pointer"
+                                    className="w-4 h-4 rounded text-rose-600 accent-rose-500 cursor-pointer disabled:opacity-30"
                                   />
-                                  <span
-                                    className={`text-[10px] px-2 py-0.5 rounded font-bold uppercase tracking-wider shrink-0 ${
-                                      isSelected
-                                        ? "bg-rose-100 dark:bg-rose-900/60 text-rose-700 dark:text-rose-300"
-                                        : "bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300"
-                                    }`}
-                                  >
-                                    {isSelected ? "Silinecek" : "Saklanacak"}
-                                  </span>
+                                  {!exists ? (
+                                    <span className="text-[10px] px-2 py-0.5 rounded font-bold uppercase bg-slate-200 dark:bg-white/10 text-slate-500 shrink-0">
+                                      ✓ Taşınmış / Yok
+                                    </span>
+                                  ) : (
+                                    <span
+                                      className={`text-[10px] px-2 py-0.5 rounded font-bold uppercase tracking-wider shrink-0 ${
+                                        isSelected
+                                          ? "bg-rose-100 dark:bg-rose-900/60 text-rose-700 dark:text-rose-300"
+                                          : "bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300"
+                                      }`}
+                                    >
+                                      {isSelected ? "Silinecek" : "Saklanacak"}
+                                    </span>
+                                  )}
                                   <span
                                     className={`font-mono text-[11px] truncate flex-1 ${
-                                      isSelected
+                                      !exists
+                                        ? "text-slate-400 line-through"
+                                        : isSelected
                                         ? "text-rose-700 dark:text-rose-300 line-through opacity-80"
                                         : "text-slate-700 dark:text-gray-200"
                                     }`}
@@ -2566,6 +2699,30 @@ export default function App() {
                                   <span className="text-[10px] text-slate-400 dark:text-gray-500 hidden sm:inline">
                                     {f.modified}
                                   </span>
+                                  {exists && (
+                                    <>
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleDirectMove([f.path]);
+                                        }}
+                                        className="px-2 py-0.5 rounded bg-amber-50 dark:bg-amber-950/60 hover:bg-amber-100 text-amber-700 dark:text-amber-400 border border-amber-300 dark:border-amber-800 text-[10px] font-semibold"
+                                        title="Bu tekil dosyayı _SILINECEK_KOPYALAR klasörüne taşı"
+                                      >
+                                        Taşı
+                                      </button>
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleDirectDelete([f.path]);
+                                        }}
+                                        className="px-2 py-0.5 rounded bg-rose-50 dark:bg-rose-950/60 hover:bg-rose-100 text-rose-700 dark:text-rose-400 border border-rose-300 dark:border-rose-800 text-[10px] font-semibold"
+                                        title="Bu dosyayı Geri Dönüşüm Kutusuna at"
+                                      >
+                                        Çöpe At
+                                      </button>
+                                    </>
+                                  )}
                                   <button
                                     onClick={(e) => {
                                       e.stopPropagation();

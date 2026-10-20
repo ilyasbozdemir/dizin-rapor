@@ -23,6 +23,9 @@ export interface IApi {
   openFile: (filePath: string) => Promise<string>
   showInFolder: (filePath: string) => Promise<boolean>
   getMigrationReports: () => Promise<any>
+  checkFilesExist: (filePaths: string[]) => Promise<Record<string, boolean>>
+  moveFiles: (params: { filePaths: string[]; destinationFolder?: string }) => Promise<{ success: boolean; successCount: number; failCount: number; errors: { path: string; error: string }[]; targetFolder?: string }>
+  deleteFiles: (params: { filePaths: string[]; useRecycleBin?: boolean }) => Promise<{ success: boolean; successCount: number; failCount: number; errors: { path: string; error: string }[] }>
 }
 
 declare global {
