@@ -12,7 +12,7 @@ for _s in (sys.stdout, sys.stderr):
         try: _s.reconfigure(encoding="utf-8", errors="replace")
         except Exception: pass
 
-TARGET_DRIVES = [d for d in ["D:\\", "E:\\"] if os.path.exists(d)]
+TARGET_DRIVES = [d for d in ["C:\\","D:\\", "E:\\"] if os.path.exists(d)]
 
 EXCLUDE_DIRS = {
     "$recycle.bin",

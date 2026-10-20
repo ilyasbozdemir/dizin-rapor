@@ -103,103 +103,30 @@ const MOCK_FILES = [
 ]
 
 const MOCK_REPORTS = {
-  duplicate: {
-    summary: {
-      scan_date: new Date().toLocaleString('tr-TR'),
-      elapsed_seconds: 9.31,
-      scanned_drives: ['E:\\'],
-      total_files_scanned: 6429,
-      total_bytes_scanned: 8849055842,
-      total_size_scanned_formatted: '8.24 GB',
-      zero_byte_files_count: 512,
-      duplicate_groups_count: 737,
-      duplicate_files_count: 2010,
-      total_wasted_bytes: 2247507764,
-      total_wasted_formatted: '2.09 GB',
-      cross_drive_groups_count: 0,
-      cross_drive_wasted_formatted: '0 B'
-    },
-    duplicates: [
-      {
-        group_id: 233,
-        hash: '882f2fc95e8bdb57a7a820b111e5f08330cba8d5923d71af2e019b69da9557b5',
-        size_bytes: 173175877,
-        size_formatted: '165.15 MB',
-        count: 2,
-        wasted_bytes: 173175877,
-        wasted_formatted: '165.15 MB',
-        files: [
-          {
-            path: 'E:\\20.10.2026-yedek\\ihale_dokumani_2022_649846.zip',
-            filename: 'ihale_dokumani_2022_649846.zip'
-          },
-          {
-            path: 'E:\\YEDEK\\ihale_dokumani_2022_649846.zip',
-            filename: 'ihale_dokumani_2022_649846.zip'
-          }
-        ]
-      }
-    ]
-  },
-  migration: {
-    summary: {
-      source: 'E:\\ (USB Bellek)',
-      target: 'D:\\E_BIRLESTIRME',
-      total_files_scanned: 6429,
-      total_bytes_scanned: 8849055842,
-      total_size_scanned_formatted: '8.24 GB',
-      unique_files_to_copy: 5078,
-      unique_bytes_to_copy: 6601548078,
-      unique_size_to_copy_formatted: '6.15 GB',
-      duplicates_skipped: 1351,
-      wasted_bytes_saved: 2247507764,
-      wasted_saved_formatted: '2.09 GB',
-      shortened_paths_count: 286,
-      danger_paths_220_plus: 0
-    }
-  }
+  duplicate: null,
+  migration: null
 }
 
-// In-memory mock state for web browser preview
+// In-memory state for web browser preview
 let mockFilesState = [...MOCK_FILES]
 const outputListeners = new Set<(data: { taskId: string; text: string; stream: 'stdout' | 'stderr' }) => void>()
 const exitListeners = new Set<(data: { taskId: string; code: number }) => void>()
-let mockProcessTimer: any = null
 
 const mockApi: IApi = {
   runPythonTask: async ({ taskId, scriptName, args = [] }: { taskId: string; scriptName: string; args?: string[] }) => {
-    console.log(`[MockApi] Running ${scriptName} with args:`, args)
-    const logs = [
-      `[MOCK ENGINE] Python ortamı simülasyonu başlatıldı.\n`,
-      `[KOMUT] python ${scriptName} ${args.join(' ')}\n`,
-      `[1/4] Dizin taranıyor (E:\\)... Toplam 6.429 dosya tespit edildi.\n`,
-      `[2/4] SHA-256 hash kontrolleri yapılıyor... (Hızlı ön-boyut filtreleme)\n`,
-      `[3/4] 737 mükerrer dosya grubu ayrıştırıldı. Tasarruf: 2.09 GB\n`,
-      `[4/4] Hedef dizin kontrol edildi (D:\\E_BIRLESTIRME). Raporlar güncellendi.\n`,
-      `✓ İşlem başarıyla tamamlandı (Çıkış Kodu: 0)\n`
-    ]
-
-    let step = 0
-    clearInterval(mockProcessTimer)
-    mockProcessTimer = setInterval(() => {
-      if (step < logs.length) {
-        outputListeners.forEach((fn) => fn({ taskId, text: logs[step], stream: 'stdout' }))
-        step++
-      } else {
-        clearInterval(mockProcessTimer)
-        exitListeners.forEach((fn) => fn({ taskId, code: 0 }))
-      }
-    }, 400)
-
-    return { success: true, pid: 9999 }
+    console.warn(`[Electron Gerekli] ${scriptName} işlemi doğrudan masaüstü uygulamasında çalıştırılmalıdır.`, args)
+    outputListeners.forEach((fn) =>
+      fn({
+        taskId,
+        text: `[HATA] Python betikleri (${scriptName}) yalnızca Electron masaüstü uygulamasında çalıştırılabilir.\nTarayıcı önizlemesinde doğrudan sistem süreçleri yürütülemez.\nKomut: python ${scriptName} ${args.join(' ')}\n`,
+        stream: 'stderr'
+      })
+    )
+    exitListeners.forEach((fn) => fn({ taskId, code: 1 }))
+    return { success: false, message: 'Python betiği çalıştırmak için Electron uygulamasını kullanın.' }
   },
 
-  stopPythonTask: async ({ taskId }: { taskId: string }) => {
-    clearInterval(mockProcessTimer)
-    outputListeners.forEach((fn) =>
-      fn({ taskId, text: '\n[İşlem kullanıcı tarafından durduruldu.]\n', stream: 'stderr' })
-    )
-    exitListeners.forEach((fn) => fn({ taskId, code: -1 }))
+  stopPythonTask: async (_params: { taskId: string }) => {
     return { success: true }
   },
 
