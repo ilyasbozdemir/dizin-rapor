@@ -764,6 +764,45 @@ def generate_html(s, duplicates, html_path):
     .drive-d {{ background: #0284c7; color: #fff; }}
     .drive-e {{ background: #7c3aed; color: #fff; }}
 
+    .tree-root-banner {{
+      padding: 0.6rem 0.95rem;
+      background: rgba(99, 102, 241, 0.12);
+      border-bottom: 1px solid rgba(99, 102, 241, 0.25);
+      font-size: 0.8rem;
+      font-family: 'JetBrains Mono', monospace;
+      color: #c7d2fe;
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+    }}
+
+    .tree-branch-header {{
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      font-size: 0.82rem;
+      font-family: 'JetBrains Mono', monospace;
+      color: #fbbf24;
+      padding: 0.45rem 0.65rem 0.25rem 0.65rem;
+      font-weight: 600;
+    }}
+
+    .tree-branch-header .branch-tag {{
+      background: rgba(245, 158, 11, 0.15);
+      border: 1px solid rgba(245, 158, 11, 0.3);
+      padding: 0.15rem 0.5rem;
+      border-radius: 6px;
+      color: #fde68a;
+    }}
+
+    .tree-files-wrap {{
+      padding-left: 1.5rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+    }}
+
+
     .file-time {{
       color: var(--text-muted);
       white-space: nowrap;
@@ -1117,6 +1156,9 @@ def generate_html(s, duplicates, html_path):
         <button class="batch-btn" onclick="clearAllSelections()" title="İşaretlenen tüm dosyaları sıfırlar">
           ❌ Seçimleri Temizle
         </button>
+        <button class="batch-btn" id="btnViewToggle" onclick="toggleViewMode()" title="Klasör ağacı ile tam liste arasında geçiş yap">
+          🌳 Ağaç Görünümü (Aktif)
+        </button>
       </div>
     </div>
 
@@ -1212,9 +1254,81 @@ def generate_html(s, duplicates, html_path):
     let currentFilter = 'all';
     let searchQuery = '';
     let currentPlatform = 'powershell';
+    let currentViewMode = 'tree';
 
     // Set of selected file paths for deletion
     const selectedPaths = new Set();
+
+    function toggleViewMode() {{
+      currentViewMode = currentViewMode === 'tree' ? 'list' : 'tree';
+      const btn = document.getElementById('btnViewToggle');
+      if (btn) {{
+        btn.innerHTML = currentViewMode === 'tree' ? '🌳 Ağaç Görünümü (Aktif)' : '📋 Düz Liste (Aktif)';
+      }}
+      renderList();
+    }}
+
+    function getCommonPathPrefix(paths) {{
+      if (!paths || paths.length === 0) return '';
+      if (paths.length === 1) {{
+        const p = paths[0];
+        const lastSlash = Math.max(p.lastIndexOf('\\\\'), p.lastIndexOf('/'));
+        return lastSlash > 0 ? p.substring(0, lastSlash) : '';
+      }}
+
+      const splitDirs = paths.map(p => {{
+        const lastSlash = Math.max(p.lastIndexOf('\\\\'), p.lastIndexOf('/'));
+        const dir = lastSlash > 0 ? p.substring(0, lastSlash) : p;
+        return dir.split(/[\\\\/]+/).filter(Boolean);
+      }});
+
+      const first = splitDirs[0];
+      const commonParts = [];
+
+      for (let i = 0; i < first.length; i++) {{
+        const part = first[i];
+        const allMatch = splitDirs.every(sd => i < sd.length && sd[i].toLowerCase() === part.toLowerCase());
+        if (allMatch) {{
+          commonParts.push(part);
+        }} else {{
+          break;
+        }}
+      }}
+
+      if (commonParts.length === 0) return '';
+      if (commonParts[0].includes(':')) {{
+        return commonParts[0] + '\\\\' + commonParts.slice(1).join('\\\\');
+      }}
+      return commonParts.join('\\\\');
+    }}
+
+    function organizeFilesIntoTree(files) {{
+      const paths = files.map(f => f.path).filter(Boolean);
+      const commonRoot = getCommonPathPrefix(paths);
+
+      const branchMap = {{}};
+      files.forEach(f => {{
+        const fullDir = f.directory || (f.path ? f.path.substring(0, Math.max(f.path.lastIndexOf('\\\\'), f.path.lastIndexOf('/'))) : '');
+        let relative = '';
+        if (commonRoot && fullDir.toLowerCase().startsWith(commonRoot.toLowerCase())) {{
+          relative = fullDir.substring(commonRoot.length).replace(/^[\\\\/]+/, '');
+        }} else {{
+          relative = fullDir;
+        }}
+        const branchKey = relative || '(Doğrudan Klasör)';
+        if (!branchMap[branchKey]) {{
+          branchMap[branchKey] = [];
+        }}
+        branchMap[branchKey].push(f);
+      }});
+
+      const branches = Object.keys(branchMap).map(subfolder => ({{
+        subfolder,
+        files: branchMap[subfolder]
+      }}));
+
+      return {{ commonRoot, branches }};
+    }}
 
     function formatBytes(bytes) {{
       if (!bytes || bytes === 0) return '0 B';
@@ -1257,33 +1371,99 @@ def generate_html(s, duplicates, html_path):
           ? '<span class="badge badge-cross">Çapraz Disk (D ↔ E)</span>'
           : '<span class="badge badge-single">Disk: ' + group.drives.join(', ') + '</span>';
 
-        // Check how many in this group are selected
         const selCountInGroup = group.files.filter(f => selectedPaths.has(f.path)).length;
         const allSelected = selCountInGroup === group.files.length;
+        const treeData = organizeFilesIntoTree(group.files);
 
-        const fileRows = group.files.map((f, fIdx) => {{
-          const driveClass = f.drive === 'D:' ? 'drive-d' : 'drive-e';
-          const isSelected = selectedPaths.has(f.path);
-          const rowClass = isSelected ? 'file-row is-selected' : 'file-row';
-          const statusHtml = isSelected
-            ? '<span class="status-badge status-del">Silinecek</span>'
-            : '<span class="status-badge status-keep">Saklanacak</span>';
+        let itemsHtml = '';
 
-          return `
-            <div class="${{rowClass}}" id="row-${{idx}}-${{fIdx}}">
-              <label class="file-chk-label">
-                <input type="checkbox" class="file-chk" ${{isSelected ? 'checked' : ''}} 
-                  onchange="toggleFileSelection('${{escapeJs(f.path)}}', this.checked)">
-                ${{statusHtml}}
-              </label>
-              <div class="file-path">
-                <span class="drive-tag ${{driveClass}}">${{f.drive}}</span>${{escapeHtml(f.path)}}
+        if (currentViewMode === 'tree') {{
+          // TREE VIEW
+          let rootHtml = '';
+          if (treeData.commonRoot) {{
+            rootHtml = `
+              <div class="tree-root-banner">
+                <span>📁</span>
+                <strong style="color:#94a3b8; font-size:0.75rem; text-transform:uppercase;">Ortak Kök Dizin:</strong>
+                <span>${{escapeHtml(treeData.commonRoot)}}\\\\</span>
               </div>
-              <div class="file-time">${{f.modified}}</div>
-              <button class="btn-copy" onclick="navigator.clipboard.writeText('${{escapeJs(f.path)}}'); showToast('Dosya yolu kopyalandı!')">Yolu Kopyala</button>
+            `;
+          }}
+
+          const branchesHtml = treeData.branches.map(b => {{
+            const filesHtml = b.files.map((f, fIdx) => {{
+              const driveClass = f.drive === 'D:' ? 'drive-d' : 'drive-e';
+              const isSelected = selectedPaths.has(f.path);
+              const rowClass = isSelected ? 'file-row is-selected' : 'file-row';
+              const statusHtml = isSelected
+                ? '<span class="status-badge status-del">Silinecek</span>'
+                : '<span class="status-badge status-keep">Saklanacak</span>';
+
+              return `
+                <div class="${{rowClass}}" id="row-${{idx}}-${{fIdx}}">
+                  <label class="file-chk-label">
+                    <span style="color:#64748b; font-family:monospace;">└──</span>
+                    <input type="checkbox" class="file-chk" ${{isSelected ? 'checked' : ''}} 
+                      onchange="toggleFileSelection('${{escapeJs(f.path)}}', this.checked)">
+                    ${{statusHtml}}
+                  </label>
+                  <div class="file-path">
+                    📄 <strong>${{escapeHtml(f.filename)}}</strong>
+                  </div>
+                  <div class="file-time">${{f.modified}}</div>
+                  <button class="btn-copy" onclick="navigator.clipboard.writeText('${{escapeJs(f.path)}}'); showToast('Dosya yolu kopyalandı!')">Yolu Kopyala</button>
+                </div>
+              `;
+            }}).join('');
+
+            return `
+              <div style="margin-bottom:0.75rem;">
+                <div class="tree-branch-header">
+                  <span style="color:#818cf8;">├──</span>
+                  <span>📂</span>
+                  <span class="branch-tag">${{escapeHtml(b.subfolder)}}</span>
+                </div>
+                <div class="tree-files-wrap">
+                  ${{filesHtml}}
+                </div>
+              </div>
+            `;
+          }}).join('');
+
+          itemsHtml = `
+            ${{rootHtml}}
+            <div style="padding:0.75rem 1rem;">
+              ${{branchesHtml}}
             </div>
           `;
-        }}).join('');
+        }} else {{
+          // FLAT LIST VIEW
+          const fileRows = group.files.map((f, fIdx) => {{
+            const driveClass = f.drive === 'D:' ? 'drive-d' : 'drive-e';
+            const isSelected = selectedPaths.has(f.path);
+            const rowClass = isSelected ? 'file-row is-selected' : 'file-row';
+            const statusHtml = isSelected
+              ? '<span class="status-badge status-del">Silinecek</span>'
+              : '<span class="status-badge status-keep">Saklanacak</span>';
+
+            return `
+              <div class="${{rowClass}}" id="row-${{idx}}-${{fIdx}}">
+                <label class="file-chk-label">
+                  <input type="checkbox" class="file-chk" ${{isSelected ? 'checked' : ''}} 
+                    onchange="toggleFileSelection('${{escapeJs(f.path)}}', this.checked)">
+                  ${{statusHtml}}
+                </label>
+                <div class="file-path">
+                  <span class="drive-tag ${{driveClass}}">${{f.drive}}</span>${{escapeHtml(f.path)}}
+                </div>
+                <div class="file-time">${{f.modified}}</div>
+                <button class="btn-copy" onclick="navigator.clipboard.writeText('${{escapeJs(f.path)}}'); showToast('Dosya yolu kopyalandı!')">Yolu Kopyala</button>
+              </div>
+            `;
+          }}).join('');
+
+          itemsHtml = `<div class="file-items">${{fileRows}}</div>`;
+        }}
 
         const warningBanner = allSelected
           ? '<span style="font-size:0.75rem; color:#f87171; font-weight:700; background:rgba(239,68,68,0.15); padding:0.2rem 0.5rem; border-radius:6px; border:1px solid rgba(239,68,68,0.3);">⚠️ DİKKAT: Gruptaki tüm kopyalar seçili!</span>'
@@ -1303,14 +1483,13 @@ def generate_html(s, duplicates, html_path):
               <span class="hash-code" title="${{group.hash}}">SHA: ${{group.hash.substring(0, 14)}}...</span>
             </div>
           </div>
-          <div class="file-items">
-            ${{fileRows}}
-          </div>
+          ${{itemsHtml}}
         `;
         container.appendChild(card);
       }});
 
       updateScriptStats();
+    }}
     }}
 
     function toggleFileSelection(path, isChecked) {{

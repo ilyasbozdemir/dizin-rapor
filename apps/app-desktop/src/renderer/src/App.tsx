@@ -26,9 +26,11 @@ import {
   FolderKanban,
   FolderOpen,
   FolderSearch,
+  FolderTree,
   HardDrive,
   Image,
   Layers,
+  List,
   Moon,
   PanelLeftClose,
   PanelLeftOpen,
@@ -252,9 +254,86 @@ export default function App() {
   const [isDuplicateSafeMode, setIsDuplicateSafeMode] = useState<boolean>(true);
   const [copiedScript, setCopiedScript] = useState<boolean>(false);
   const [showScriptPreview, setShowScriptPreview] = useState<boolean>(false);
+  const [duplicateViewMode, setDuplicateViewMode] = useState<"tree" | "list">("tree");
   const [fileExistMap, setFileExistMap] = useState<Record<string, boolean>>({});
   const [isCheckingLive, setIsCheckingLive] = useState<boolean>(false);
   const [isExecutingAction, setIsExecutingAction] = useState<boolean>(false);
+
+  const getCommonPathPrefix = (paths: string[]): string => {
+    if (!paths || paths.length === 0) return "";
+    if (paths.length === 1) {
+      const p = paths[0];
+      const lastSlash = Math.max(p.lastIndexOf("\\"), p.lastIndexOf("/"));
+      return lastSlash > 0 ? p.substring(0, lastSlash) : "";
+    }
+
+    const splitDirs = paths.map((p) => {
+      const lastSlash = Math.max(p.lastIndexOf("\\"), p.lastIndexOf("/"));
+      const dir = lastSlash > 0 ? p.substring(0, lastSlash) : p;
+      return dir.split(/[\\/]+/).filter(Boolean);
+    });
+
+    const first = splitDirs[0];
+    const commonParts: string[] = [];
+
+    for (let i = 0; i < first.length; i++) {
+      const part = first[i];
+      const allMatch = splitDirs.every(
+        (sd) => i < sd.length && sd[i].toLowerCase() === part.toLowerCase()
+      );
+      if (allMatch) {
+        commonParts.push(part);
+      } else {
+        break;
+      }
+    }
+
+    if (commonParts.length === 0) return "";
+    if (commonParts[0].includes(":")) {
+      return commonParts[0] + "\\" + commonParts.slice(1).join("\\");
+    }
+    return commonParts.join("\\");
+  };
+
+  const organizeFilesIntoTree = (
+    files: any[]
+  ): { commonRoot: string; branches: { subfolder: string; files: any[] }[] } => {
+    const paths = files.map((f) => f.path).filter(Boolean);
+    const commonRoot = getCommonPathPrefix(paths);
+
+    const branchMap: Record<string, any[]> = {};
+    files.forEach((f) => {
+      const fullDir =
+        f.directory ||
+        (f.path
+          ? f.path.substring(
+              0,
+              Math.max(f.path.lastIndexOf("\\"), f.path.lastIndexOf("/"))
+            )
+          : "");
+      let relative = "";
+      if (
+        commonRoot &&
+        fullDir.toLowerCase().startsWith(commonRoot.toLowerCase())
+      ) {
+        relative = fullDir.substring(commonRoot.length).replace(/^[\\/]+/, "");
+      } else {
+        relative = fullDir;
+      }
+      const branchKey = relative || "(Doğrudan Klasör)";
+      if (!branchMap[branchKey]) {
+        branchMap[branchKey] = [];
+      }
+      branchMap[branchKey].push(f);
+    });
+
+    const branches = Object.keys(branchMap).map((subfolder) => ({
+      subfolder,
+      files: branchMap[subfolder],
+    }));
+
+    return { commonRoot, branches };
+  };
 
   const loadReports = async () => {
     setLoadingReports(true);
@@ -2588,9 +2667,37 @@ export default function App() {
 
               {/* Duplicates Accordion List */}
               <div className="space-y-3">
-                <div className="flex items-center justify-between text-xs font-bold text-slate-600 dark:text-gray-400 px-1">
+                <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-bold text-slate-600 dark:text-gray-400 px-1">
                   <span>Mükerrer Dosya Grupları ({duplicateList.length} grup tespit edildi)</span>
-                  <span>Silmek veya taşımak istediğiniz dosyaları seçin</span>
+                  <div className="flex items-center gap-2">
+                    {/* View Mode Toggle: Tree vs Flat List */}
+                    <div className="flex items-center gap-1 bg-slate-200 dark:bg-white/10 p-1 rounded-lg">
+                      <button
+                        onClick={() => setDuplicateViewMode("tree")}
+                        className={`px-2.5 py-1 rounded text-xs font-bold flex items-center gap-1.5 transition ${
+                          duplicateViewMode === "tree"
+                            ? "bg-indigo-600 text-white shadow-xs"
+                            : "text-slate-600 dark:text-gray-400 hover:text-slate-900 dark:hover:text-white"
+                        }`}
+                        title="Klasör hiyerarşisi ve ortak kök dizin ağacı ile görüntüle"
+                      >
+                        <FolderTree className="w-3.5 h-3.5" />
+                        <span>🌳 Ağaç Görünümü</span>
+                      </button>
+                      <button
+                        onClick={() => setDuplicateViewMode("list")}
+                        className={`px-2.5 py-1 rounded text-xs font-bold flex items-center gap-1.5 transition ${
+                          duplicateViewMode === "list"
+                            ? "bg-indigo-600 text-white shadow-xs"
+                            : "text-slate-600 dark:text-gray-400 hover:text-slate-900 dark:hover:text-white"
+                        }`}
+                        title="Klasik tam yol listesi ile görüntüle"
+                      >
+                        <List className="w-3.5 h-3.5" />
+                        <span>📋 Düz Liste</span>
+                      </button>
+                    </div>
+                  </div>
                 </div>
 
                 {duplicateList.length === 0 ? (
@@ -2610,6 +2717,7 @@ export default function App() {
                       selectedDuplicatePaths.includes(f.path)
                     ).length;
                     const allInGroupSelected = selInGroup === files.length && files.length > 0;
+                    const treeData = organizeFilesIntoTree(files);
 
                     return (
                       <div
@@ -2640,114 +2748,253 @@ export default function App() {
                           </div>
                         </div>
 
-                        {/* File Rows in Group */}
-                        <div className="p-2 space-y-1.5">
-                          {files.map((f: any, fIdx: number) => {
-                            const isSelected = selectedDuplicatePaths.includes(f.path);
-                            const exists = fileExistMap[f.path] !== false; // default true until checked
+                        {/* TREE VIEW MODE */}
+                        {duplicateViewMode === "tree" ? (
+                          <div className="p-2.5 space-y-3">
+                            {/* Common Root Banner */}
+                            {treeData.commonRoot && (
+                              <div className="px-3 py-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-900/40 text-[11px] font-mono text-indigo-700 dark:text-indigo-300 flex items-center gap-2">
+                                <Folder className="w-4 h-4 text-indigo-500 shrink-0" />
+                                <span className="font-bold text-slate-500 dark:text-gray-400 uppercase text-[10px]">Ortak Kök Dizin:</span>
+                                <span className="truncate font-semibold">{treeData.commonRoot}\</span>
+                              </div>
+                            )}
 
-                            return (
-                              <div
-                                key={f.path || fIdx}
-                                onClick={() => exists && toggleDuplicatePath(f.path)}
-                                className={`flex items-center justify-between gap-3 p-2 rounded-lg border text-xs transition select-none ${
-                                  !exists
-                                    ? "bg-slate-100/60 dark:bg-white/[0.02] border-slate-200 dark:border-white/5 opacity-60 cursor-default"
-                                    : isSelected
-                                    ? "bg-rose-50/80 dark:bg-rose-950/30 border-rose-200 dark:border-rose-900/60 cursor-pointer"
-                                    : "bg-white dark:bg-[#121929] border-slate-200 dark:border-white/5 hover:border-slate-300 dark:hover:border-white/20 cursor-pointer"
-                                }`}
-                              >
-                                <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                                  <input
-                                    type="checkbox"
-                                    disabled={!exists}
-                                    checked={isSelected && exists}
-                                    onChange={() => {}}
-                                    className="w-4 h-4 rounded text-rose-600 accent-rose-500 cursor-pointer disabled:opacity-30"
-                                  />
-                                  {!exists ? (
-                                    <span className="text-[10px] px-2 py-0.5 rounded font-bold uppercase bg-slate-200 dark:bg-white/10 text-slate-500 shrink-0">
-                                      ✓ Taşınmış / Yok
-                                    </span>
-                                  ) : (
-                                    <span
-                                      className={`text-[10px] px-2 py-0.5 rounded font-bold uppercase tracking-wider shrink-0 ${
-                                        isSelected
-                                          ? "bg-rose-100 dark:bg-rose-900/60 text-rose-700 dark:text-rose-300"
-                                          : "bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300"
-                                      }`}
-                                    >
-                                      {isSelected ? "Silinecek" : "Saklanacak"}
-                                    </span>
-                                  )}
-                                  <span
-                                    className={`font-mono text-[11px] truncate flex-1 ${
-                                      !exists
-                                        ? "text-slate-400 line-through"
-                                        : isSelected
-                                        ? "text-rose-700 dark:text-rose-300 line-through opacity-80"
-                                        : "text-slate-700 dark:text-gray-200"
-                                    }`}
-                                    title={f.path}
-                                  >
-                                    {f.path}
+                            {/* Branches */}
+                            {treeData.branches.map((branch, bIdx) => (
+                              <div key={branch.subfolder || bIdx} className="space-y-1.5">
+                                {/* Branch Folder Label */}
+                                <div className="flex items-center gap-1.5 text-xs font-mono text-slate-700 dark:text-gray-300 pt-1">
+                                  <span className="text-indigo-400 dark:text-indigo-500 font-bold">├──</span>
+                                  <FolderOpen className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                                  <span className="font-semibold text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 px-2 py-0.5 rounded border border-amber-200 dark:border-amber-900/50">
+                                    {branch.subfolder}
                                   </span>
                                 </div>
 
-                                <div className="flex items-center gap-2 shrink-0">
-                                  <span className="text-[10px] text-slate-400 dark:text-gray-500 hidden sm:inline">
-                                    {f.modified}
-                                  </span>
-                                  {exists && (
-                                    <>
-                                      <button
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          handleDirectMove([f.path]);
-                                        }}
-                                        className="px-2 py-0.5 rounded bg-amber-50 dark:bg-amber-950/60 hover:bg-amber-100 text-amber-700 dark:text-amber-400 border border-amber-300 dark:border-amber-800 text-[10px] font-semibold"
-                                        title="Bu tekil dosyayı _SILINECEK_KOPYALAR klasörüne taşı"
+                                {/* Files in Branch (Indented) */}
+                                <div className="pl-6 space-y-1">
+                                  {branch.files.map((f: any, fIdx: number) => {
+                                    const isSelected = selectedDuplicatePaths.includes(f.path);
+                                    const exists = fileExistMap[f.path] !== false;
+
+                                    return (
+                                      <div
+                                        key={f.path || fIdx}
+                                        onClick={() => exists && toggleDuplicatePath(f.path)}
+                                        className={`flex items-center justify-between gap-3 p-2 rounded-lg border text-xs transition select-none ${
+                                          !exists
+                                            ? "bg-slate-100/60 dark:bg-white/[0.02] border-slate-200 dark:border-white/5 opacity-60 cursor-default"
+                                            : isSelected
+                                            ? "bg-rose-50/80 dark:bg-rose-950/30 border-rose-200 dark:border-rose-900/60 cursor-pointer shadow-xs"
+                                            : "bg-white dark:bg-[#121929] border-slate-200 dark:border-white/5 hover:border-slate-300 dark:hover:border-white/20 cursor-pointer"
+                                        }`}
                                       >
-                                        Taşı
-                                      </button>
-                                      <button
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          handleDirectDelete([f.path]);
-                                        }}
-                                        className="px-2 py-0.5 rounded bg-rose-50 dark:bg-rose-950/60 hover:bg-rose-100 text-rose-700 dark:text-rose-400 border border-rose-300 dark:border-rose-800 text-[10px] font-semibold"
-                                        title="Bu dosyayı Geri Dönüşüm Kutusuna at"
-                                      >
-                                        Çöpe At
-                                      </button>
-                                    </>
-                                  )}
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      navigator.clipboard.writeText(f.path);
-                                    }}
-                                    className="p-1 rounded hover:bg-slate-200 dark:hover:bg-white/10 text-slate-500 dark:text-gray-400 text-[10px]"
-                                    title="Yolu Kopyala"
-                                  >
-                                    <Copy className="w-3.5 h-3.5" />
-                                  </button>
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      api.showInFolder(f.path);
-                                    }}
-                                    className="p-1 rounded hover:bg-slate-200 dark:hover:bg-white/10 text-slate-500 dark:text-gray-400 text-[10px]"
-                                    title="Klasörde Göster"
-                                  >
-                                    <ExternalLink className="w-3.5 h-3.5" />
-                                  </button>
+                                        <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                                          <span className="text-slate-400 dark:text-gray-600 font-mono">└──</span>
+                                          <input
+                                            type="checkbox"
+                                            disabled={!exists}
+                                            checked={isSelected && exists}
+                                            onChange={() => {}}
+                                            className="w-4 h-4 rounded text-rose-600 accent-rose-500 cursor-pointer disabled:opacity-30"
+                                          />
+                                          {!exists ? (
+                                            <span className="text-[10px] px-2 py-0.5 rounded font-bold uppercase bg-slate-200 dark:bg-white/10 text-slate-500 shrink-0">
+                                              ✓ Taşınmış / Yok
+                                            </span>
+                                          ) : (
+                                            <span
+                                              className={`text-[10px] px-2 py-0.5 rounded font-bold uppercase tracking-wider shrink-0 ${
+                                                isSelected
+                                                  ? "bg-rose-100 dark:bg-rose-900/60 text-rose-700 dark:text-rose-300"
+                                                  : "bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300"
+                                              }`}
+                                            >
+                                              {isSelected ? "Silinecek" : "Saklanacak"}
+                                            </span>
+                                          )}
+                                          <FileText className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                          <span
+                                            className={`font-semibold font-mono text-[11px] truncate flex-1 ${
+                                              !exists
+                                                ? "text-slate-400 line-through"
+                                                : isSelected
+                                                ? "text-rose-700 dark:text-rose-300 line-through opacity-85"
+                                                : "text-slate-800 dark:text-gray-100"
+                                            }`}
+                                            title={f.path}
+                                          >
+                                            {f.filename || f.path}
+                                          </span>
+                                        </div>
+
+                                        <div className="flex items-center gap-2 shrink-0">
+                                          <span className="text-[10px] text-slate-400 dark:text-gray-500 hidden sm:inline">
+                                            {f.modified}
+                                          </span>
+                                          {exists && (
+                                            <>
+                                              <button
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  handleDirectMove([f.path]);
+                                                }}
+                                                className="px-2 py-0.5 rounded bg-amber-50 dark:bg-amber-950/60 hover:bg-amber-100 text-amber-700 dark:text-amber-400 border border-amber-300 dark:border-amber-800 text-[10px] font-semibold"
+                                                title="Bu tekil dosyayı _SILINECEK_KOPYALAR klasörüne taşı"
+                                              >
+                                                Taşı
+                                              </button>
+                                              <button
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  handleDirectDelete([f.path]);
+                                                }}
+                                                className="px-2 py-0.5 rounded bg-rose-50 dark:bg-rose-950/60 hover:bg-rose-100 text-rose-700 dark:text-rose-400 border border-rose-300 dark:border-rose-800 text-[10px] font-semibold"
+                                                title="Bu dosyayı Geri Dönüşüm Kutusuna at"
+                                              >
+                                                Çöpe At
+                                              </button>
+                                            </>
+                                          )}
+                                          <button
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              navigator.clipboard.writeText(f.path);
+                                            }}
+                                            className="p-1 rounded hover:bg-slate-200 dark:hover:bg-white/10 text-slate-500 dark:text-gray-400 text-[10px]"
+                                            title="Yolu Kopyala"
+                                          >
+                                            <Copy className="w-3.5 h-3.5" />
+                                          </button>
+                                          <button
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              api.showInFolder(f.path);
+                                            }}
+                                            className="p-1 rounded hover:bg-slate-200 dark:hover:bg-white/10 text-slate-500 dark:text-gray-400 text-[10px]"
+                                            title="Klasörde Göster"
+                                          >
+                                            <ExternalLink className="w-3.5 h-3.5" />
+                                          </button>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
                                 </div>
                               </div>
-                            );
-                          })}
-                        </div>
+                            ))}
+                          </div>
+                        ) : (
+                          /* FLAT LIST VIEW MODE */
+                          <div className="p-2 space-y-1.5">
+                            {files.map((f: any, fIdx: number) => {
+                              const isSelected = selectedDuplicatePaths.includes(f.path);
+                              const exists = fileExistMap[f.path] !== false;
+
+                              return (
+                                <div
+                                  key={f.path || fIdx}
+                                  onClick={() => exists && toggleDuplicatePath(f.path)}
+                                  className={`flex items-center justify-between gap-3 p-2 rounded-lg border text-xs transition select-none ${
+                                    !exists
+                                      ? "bg-slate-100/60 dark:bg-white/[0.02] border-slate-200 dark:border-white/5 opacity-60 cursor-default"
+                                      : isSelected
+                                      ? "bg-rose-50/80 dark:bg-rose-950/30 border-rose-200 dark:border-rose-900/60 cursor-pointer"
+                                      : "bg-white dark:bg-[#121929] border-slate-200 dark:border-white/5 hover:border-slate-300 dark:hover:border-white/20 cursor-pointer"
+                                  }`}
+                                >
+                                  <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                                    <input
+                                      type="checkbox"
+                                      disabled={!exists}
+                                      checked={isSelected && exists}
+                                      onChange={() => {}}
+                                      className="w-4 h-4 rounded text-rose-600 accent-rose-500 cursor-pointer disabled:opacity-30"
+                                    />
+                                    {!exists ? (
+                                      <span className="text-[10px] px-2 py-0.5 rounded font-bold uppercase bg-slate-200 dark:bg-white/10 text-slate-500 shrink-0">
+                                        ✓ Taşınmış / Yok
+                                      </span>
+                                    ) : (
+                                      <span
+                                        className={`text-[10px] px-2 py-0.5 rounded font-bold uppercase tracking-wider shrink-0 ${
+                                          isSelected
+                                            ? "bg-rose-100 dark:bg-rose-900/60 text-rose-700 dark:text-rose-300"
+                                            : "bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300"
+                                        }`}
+                                      >
+                                        {isSelected ? "Silinecek" : "Saklanacak"}
+                                      </span>
+                                    )}
+                                    <span
+                                      className={`font-mono text-[11px] truncate flex-1 ${
+                                        !exists
+                                          ? "text-slate-400 line-through"
+                                          : isSelected
+                                          ? "text-rose-700 dark:text-rose-300 line-through opacity-80"
+                                          : "text-slate-700 dark:text-gray-200"
+                                      }`}
+                                      title={f.path}
+                                    >
+                                      {f.path}
+                                    </span>
+                                  </div>
+
+                                  <div className="flex items-center gap-2 shrink-0">
+                                    <span className="text-[10px] text-slate-400 dark:text-gray-500 hidden sm:inline">
+                                      {f.modified}
+                                    </span>
+                                    {exists && (
+                                      <>
+                                        <button
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleDirectMove([f.path]);
+                                          }}
+                                          className="px-2 py-0.5 rounded bg-amber-50 dark:bg-amber-950/60 hover:bg-amber-100 text-amber-700 dark:text-amber-400 border border-amber-300 dark:border-amber-800 text-[10px] font-semibold"
+                                          title="Bu tekil dosyayı _SILINECEK_KOPYALAR klasörüne taşı"
+                                        >
+                                          Taşı
+                                        </button>
+                                        <button
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleDirectDelete([f.path]);
+                                          }}
+                                          className="px-2 py-0.5 rounded bg-rose-50 dark:bg-rose-950/60 hover:bg-rose-100 text-rose-700 dark:text-rose-400 border border-rose-300 dark:border-rose-800 text-[10px] font-semibold"
+                                          title="Bu dosyayı Geri Dönüşüm Kutusuna at"
+                                        >
+                                          Çöpe At
+                                        </button>
+                                      </>
+                                    )}
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        navigator.clipboard.writeText(f.path);
+                                      }}
+                                      className="p-1 rounded hover:bg-slate-200 dark:hover:bg-white/10 text-slate-500 dark:text-gray-400 text-[10px]"
+                                      title="Yolu Kopyala"
+                                    >
+                                      <Copy className="w-3.5 h-3.5" />
+                                    </button>
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        api.showInFolder(f.path);
+                                      }}
+                                      className="p-1 rounded hover:bg-slate-200 dark:hover:bg-white/10 text-slate-500 dark:text-gray-400 text-[10px]"
+                                      title="Klasörde Göster"
+                                    >
+                                      <ExternalLink className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
                       </div>
                     );
                   })
