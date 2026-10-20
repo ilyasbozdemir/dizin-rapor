@@ -1,12 +1,15 @@
 {
   "name": "arsiv-360",
-  "version": "1.0.0",
+  "version": "1.0.0-beta.1",
   "private": true,
   "description": "Arşiv 360 - Akıllı Dosya & Arşiv Gezgini, Mükerrer Eleme ve Birleştirme Platformu",
   "scripts": {
     "dev": "pnpm --filter app-desktop dev",
     "start": "pnpm --filter app-desktop start",
     "build": "pnpm --filter app-desktop build",
+    "build:all": "pnpm --filter app-desktop build:all",
+    "build:portable": "pnpm --filter app-desktop build:portable",
+    "build:installer": "pnpm --filter app-desktop build:installer",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm --filter @arsiv/core test",
     "py:scan": "python scanner.py",

@@ -1,6 +1,6 @@
 {
   "name": "app-desktop",
-  "version": "1.0.0",
+  "version": "1.0.0-beta.1",
   "type": "module",
   "description": "Windows 10/11 Çevrimdışı Arşiv Gezgini ve Dosya Yöneticisi",
   "main": "./out/main/index.js",
@@ -9,7 +9,9 @@
     "dev": "electron-vite dev",
     "start": "electron .",
     "build": "electron-vite build",
+    "build:all": "electron-vite build && electron-builder --win nsis portable",
     "build:portable": "electron-vite build && electron-builder --win portable",
+    "build:installer": "electron-vite build && electron-builder --win nsis",
     "build:unpack": "electron-vite build && electron-builder --dir",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
@@ -62,19 +64,29 @@
   },
   "build": {
     "appId": "com.arsiv.gezgini",
-    "productName": "Arsiv",
+    "productName": "Arsiv-360",
     "directories": {
       "output": "dist",
       "buildResources": "build"
     },
     "win": {
       "target": [
+        "nsis",
         "portable"
-      ],
-      "artifactName": "${productName}.${ext}"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Arşiv 360",
+      "artifactName": "${productName}-Setup-${version}.${ext}"
     },
     "portable": {
-      "requestExecutionLevel": "user"
+      "requestExecutionLevel": "user",
+      "artifactName": "${productName}-Portable-${version}.${ext}"
     }
   }
 }
