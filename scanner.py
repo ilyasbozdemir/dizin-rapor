@@ -12,7 +12,7 @@ for _s in (sys.stdout, sys.stderr):
         try: _s.reconfigure(encoding="utf-8", errors="replace")
         except Exception: pass
 
-TARGET_DRIVES = [d for d in ["E:\\"] if os.path.exists(d)] or ["D:\\", "E:\\"]
+TARGET_DRIVES = [d for d in ["D:\\", "E:\\"] if os.path.exists(d)]
 
 EXCLUDE_DIRS = {
     "$recycle.bin",
@@ -43,6 +43,24 @@ def format_size(size_bytes):
         size /= 1024.0
         i += 1
     return f"{size:.2f} {units[i]}"
+
+def format_drives_title(scanned_drives):
+    if not scanned_drives:
+        return "Tüm Sürücüler"
+    clean = [d.rstrip("\\/") for d in scanned_drives]
+    if all(len(d) == 2 and d[1] == ':' for d in clean):
+        if len(clean) == 1:
+            return f"{clean[0]} Diski"
+        elif len(clean) == 2:
+            return f"{clean[0]} & {clean[1]} Diskleri"
+        else:
+            return f"{', '.join(clean[:-1])} & {clean[-1]} Diskleri"
+    if len(clean) == 1:
+        return f"{clean[0]}"
+    elif len(clean) == 2:
+        return f"{clean[0]} & {clean[1]}"
+    else:
+        return f"{clean[0]} ve {len(clean)-1} Diğer Dizin"
 
 def get_quick_sample_hash(filepath, file_size):
     """
@@ -215,8 +233,12 @@ def main():
     only_d = [g for g in duplicates if g["drives"] == ["D:"]]
     only_e = [g for g in duplicates if g["drives"] == ["E:"]]
     large_groups = [g for g in duplicates if g["size_bytes"] >= 10 * 1024 * 1024]
+    drives_title = format_drives_title(target_drives)
+    report_title = f"{drives_title} Kopya Dosya Raporu"
 
     summary = {
+        "report_title": report_title,
+        "drives_title": drives_title,
         "scan_date": time.strftime("%Y-%m-%d %H:%M:%S"),
         "elapsed_seconds": elapsed,
         "scanned_drives": target_drives,
@@ -248,31 +270,40 @@ def main():
     generate_md(summary, duplicates, md_path)
     print(f"✓ Markdown rapor kaydedildi: {md_path}", flush=True)
 
-    # Generate HTML
+    # Generate HTML Report Bundle (rapor_kopya/ with separated HTML, CSS, JS, Data + Lazy Loading)
+    report_dir = out_dir / "rapor_kopya"
     html_path = out_dir / "duplicate_report.html"
-    generate_html(summary, duplicates, html_path)
-    print(f"✓ HTML rapor kaydedildi: {html_path}", flush=True)
+    generate_report_bundle(summary, duplicates, report_dir, html_path)
+    print(f"✓ Hızlı & Lazy-Loaded Rapor Klasörü oluşturuldu: {report_dir / 'index.html'}", flush=True)
+    print(f"✓ HTML rapor yönlendirmesi kaydedildi: {html_path}", flush=True)
 
     print(f"\nİşlem Başarıyla Tamamlandı! Toplam Süre: {elapsed} sn", flush=True)
     print(f"Bulunan Kopya Grup Sayısı: {len(duplicates)} adet", flush=True)
     print(f"Kurtarılabilir Alan (İsraf): {format_size(total_wasted)}", flush=True)
 
 def generate_md(s, duplicates, md_path):
+    report_title = s.get("report_title", "Kopya Dosya Analiz Raporu")
     lines = [
-        "# D: ve E: Diskleri Çift (Mükerrer) Dosya Analiz Raporu\n",
+        f"# {report_title}\n",
         f"- **Tarama Tarihi:** {s['scan_date']}",
         f"- **Tarama Süresi:** {s['elapsed_seconds']} saniye",
+        f"- **Taranan Dizinler:** {', '.join(s.get('scanned_drives', []))}",
         f"- **Taranan Toplam Dosya:** {s['total_files_scanned']:,} dosya ({s['total_size_scanned_formatted']})",
         f"- **Toplam Kopya Dosya Grubu:** {s['duplicate_groups_count']}",
         f"- **Toplam Kopya Dosya Sayısı:** {s['duplicate_files_count']}",
         f"- **Kurtarılabilir Toplam Alan (İsraf):** **{s['total_wasted_formatted']}**",
-        f"- **D ↔ E Çapraz Disk Kopyaları:** {s['cross_drive_groups_count']} grup ({s['cross_drive_wasted_formatted']})",
-        f"- **Yalnızca D: Diskinde Bulunan Kopyalar:** {s['only_d_groups_count']} grup",
-        f"- **Yalnızca E: Diskinde Bulunan Kopyalar:** {s['only_e_groups_count']} grup\n",
-        "## 🏆 En Fazla Alan İsrafına Neden Olan İlk 20 Kopya\n",
-        "| No | Dosya Adı | Tekil Boyut | Kopya Sayısı | Boşa Harcanan Alan | Diskler | SHA-256 (Kısa) |",
-        "| :--- | :--- | :--- | :--- | :--- | :--- | :--- |"
     ]
+    if s.get("cross_drive_groups_count", 0) > 0:
+        lines.append(f"- **Çapraz Disk Kopyaları:** {s['cross_drive_groups_count']} grup ({s['cross_drive_wasted_formatted']})")
+
+    all_drives = sorted(list(set(d for g in duplicates for d in g.get("drives", []))))
+    for drv in all_drives:
+        cnt = len([g for g in duplicates if g.get("drives") == [drv]])
+        lines.append(f"- **Yalnızca {drv} Diskinde Bulunan Kopyalar:** {cnt} grup")
+    lines.append("")
+    lines.append("## 🏆 En Fazla Alan İsrafına Neden Olan İlk 20 Kopya\n")
+    lines.append("| No | Dosya Adı | Tekil Boyut | Kopya Sayısı | Boşa Harcanan Alan | Diskler | SHA-256 (Kısa) |")
+    lines.append("| :--- | :--- | :--- | :--- | :--- | :--- | :--- |")
     for idx, g in enumerate(duplicates[:20], 1):
         name = g["files"][0]["filename"]
         drives = ", ".join(g["drives"])
@@ -291,804 +322,62 @@ def generate_md(s, duplicates, md_path):
     with open(md_path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines))
 
-def generate_html(s, duplicates, html_path):
+def generate_report_bundle(s, duplicates, report_dir, html_path):
+    report_dir = Path(report_dir)
+    report_dir.mkdir(parents=True, exist_ok=True)
+    
+    # 1. Write Data.js (Instant offline file:/// loading without CORS)
     dups_json = json.dumps(duplicates, ensure_ascii=False)
     summary_json = json.dumps(s, ensure_ascii=False)
+    data_js_content = f"window.SUMMARY_DATA = {summary_json};\nwindow.DUPLICATE_DATA = {dups_json};\n"
+    with open(report_dir / "data.js", "w", encoding="utf-8") as f:
+        f.write(data_js_content)
+    
+    # 2. Copy style.css and app.js from templates/kopya_raporu/
+    tpl_dir = Path(__file__).parent / "templates" / "kopya_raporu"
+    css_src = tpl_dir / "style.css"
+    js_src = tpl_dir / "app.js"
+    
+    if css_src.exists():
+        with open(css_src, "r", encoding="utf-8") as f_in, open(report_dir / "style.css", "w", encoding="utf-8") as f_out:
+            f_out.write(f_in.read())
+    if js_src.exists():
+        with open(js_src, "r", encoding="utf-8") as f_in, open(report_dir / "app.js", "w", encoding="utf-8") as f_out:
+            f_out.write(f_in.read())
 
-    html = f"""<!DOCTYPE html>
+    # 3. Dynamic Filters for HTML
+    all_drives = sorted(list(set(d for g in duplicates for d in g.get("drives", []))))
+    filter_btns = []
+    if s.get("cross_drive_groups_count", 0) > 0:
+        cross_lbl = "Hem D hem E" if set(all_drives) == {"D:", "E:"} else "Çapraz Diskler"
+        filter_btns.append(f'<button class="filter-btn" data-filter="cross">{cross_lbl} ({s["cross_drive_groups_count"]})</button>')
+    for drv in all_drives:
+        cnt = len([g for g in duplicates if g.get("drives") == [drv]])
+        drv_key = drv.replace(":", "").lower()
+        filter_btns.append(f'<button class="filter-btn" data-filter="{drv_key}">Sadece {drv} ({cnt})</button>')
+    dynamic_filters_html = "\n        ".join(filter_btns)
+
+    report_title = s.get("report_title", "Kopya Dosya Analiz Raporu")
+
+    # 4. Generate clean, lightweight index.html (<15KB)
+    index_html = f"""<!DOCTYPE html>
 <html lang="tr">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>D: & E: Diskleri Kopya Dosya Raporu</title>
+  <title>{report_title} | Arşiv 360</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-  <style>
-    :root {{
-      --bg: #0b0f19;
-      --card-bg: rgba(18, 24, 38, 0.9);
-      --card-border: rgba(255, 255, 255, 0.08);
-      --primary: #6366f1;
-      --primary-light: #818cf8;
-      --accent: #06b6d4;
-      --success: #10b981;
-      --warning: #f59e0b;
-      --danger: #ef4444;
-      --text: #f3f4f6;
-      --text-muted: #9ca3af;
-    }}
-
-    * {{ box-sizing: border-box; margin: 0; padding: 0; }}
-
-    body {{
-      font-family: 'Plus Jakarta Sans', sans-serif;
-      background-color: var(--bg);
-      color: var(--text);
-      line-height: 1.6;
-      padding: 2.5rem 1.5rem 5rem;
-      background-image: 
-        radial-gradient(at 0% 0%, rgba(99, 102, 241, 0.15) 0px, transparent 50%),
-        radial-gradient(at 100% 100%, rgba(6, 182, 212, 0.12) 0px, transparent 50%);
-      background-attachment: fixed;
-      min-height: 100vh;
-    }}
-
-    .container {{
-      max-width: 1400px;
-      margin: 0 auto;
-    }}
-
-    header {{
-      margin-bottom: 2.5rem;
-      border-bottom: 1px solid var(--card-border);
-      padding-bottom: 1.5rem;
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-end;
-      flex-wrap: wrap;
-      gap: 1.5rem;
-    }}
-
-    .header-left h1 {{
-      font-size: 2.2rem;
-      font-weight: 800;
-      letter-spacing: -0.02em;
-      background: linear-gradient(135deg, #ffffff 40%, var(--primary-light) 100%);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-    }}
-
-    .header-left p {{
-      color: var(--text-muted);
-      font-size: 0.95rem;
-      margin-top: 0.35rem;
-    }}
-
-    .header-badge {{
-      display: inline-flex;
-      align-items: center;
-      gap: 0.5rem;
-      padding: 0.5rem 1rem;
-      background: var(--card-bg);
-      border: 1px solid var(--card-border);
-      border-radius: 9999px;
-      font-size: 0.85rem;
-      color: var(--accent);
-      font-weight: 600;
-    }}
-
-    .stats-grid {{
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-      gap: 1.25rem;
-      margin-bottom: 2.5rem;
-    }}
-
-    .stat-card {{
-      background: var(--card-bg);
-      border: 1px solid var(--card-border);
-      padding: 1.5rem;
-      border-radius: 16px;
-      backdrop-filter: blur(12px);
-      transition: transform 0.2s, border-color 0.2s;
-    }}
-
-    .stat-card:hover {{
-      transform: translateY(-2px);
-      border-color: rgba(99, 102, 241, 0.4);
-    }}
-
-    .stat-title {{
-      font-size: 0.82rem;
-      color: var(--text-muted);
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      font-weight: 600;
-      margin-bottom: 0.5rem;
-    }}
-
-    .stat-value {{
-      font-size: 2rem;
-      font-weight: 800;
-      letter-spacing: -0.02em;
-      color: #fff;
-    }}
-
-    .stat-value.highlight-danger {{ color: #f87171; }}
-    .stat-value.highlight-accent {{ color: #38bdf8; }}
-    .stat-value.highlight-warning {{ color: #fbbf24; }}
-    .stat-value.highlight-success {{ color: #34d399; }}
-
-    .stat-sub {{
-      font-size: 0.85rem;
-      color: var(--text-muted);
-      margin-top: 0.35rem;
-    }}
-
-    .advice-section {{
-      background: linear-gradient(135deg, rgba(99, 102, 241, 0.15) 0%, rgba(6, 182, 212, 0.1) 100%);
-      border: 1px solid rgba(99, 102, 241, 0.3);
-      border-radius: 20px;
-      padding: 1.75rem 2rem;
-      margin-bottom: 2.5rem;
-    }}
-
-    .advice-title {{
-      font-size: 1.25rem;
-      font-weight: 700;
-      color: #fff;
-      display: flex;
-      align-items: center;
-      gap: 0.6rem;
-      margin-bottom: 1.2rem;
-    }}
-
-    .advice-list {{
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-      gap: 1.25rem;
-    }}
-
-    .advice-item {{
-      background: rgba(11, 15, 25, 0.65);
-      border: 1px solid var(--card-border);
-      border-radius: 14px;
-      padding: 1.2rem;
-    }}
-
-    .advice-item strong {{
-      color: var(--accent);
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-      margin-bottom: 0.5rem;
-      font-size: 0.95rem;
-    }}
-
-    .advice-item p {{
-      font-size: 0.88rem;
-      color: #d1d5db;
-    }}
-
-    .controls {{
-      display: flex;
-      flex-wrap: wrap;
-      gap: 1rem;
-      align-items: center;
-      justify-content: space-between;
-      margin-bottom: 1.5rem;
-      background: var(--card-bg);
-      border: 1px solid var(--card-border);
-      padding: 1rem 1.25rem;
-      border-radius: 14px;
-    }}
-
-    .search-box {{
-      flex: 1;
-      min-width: 280px;
-      position: relative;
-    }}
-
-    .search-box input {{
-      width: 100%;
-      background: rgba(11, 15, 25, 0.8);
-      border: 1px solid var(--card-border);
-      padding: 0.65rem 1rem 0.65rem 2.5rem;
-      border-radius: 8px;
-      color: #fff;
-      font-size: 0.9rem;
-      outline: none;
-    }}
-
-    .search-box input:focus {{
-      border-color: var(--primary);
-    }}
-
-    .search-icon {{
-      position: absolute;
-      left: 0.85rem;
-      top: 50%;
-      transform: translateY(-50%);
-      color: var(--text-muted);
-      font-size: 0.9rem;
-    }}
-
-    .filter-group {{
-      display: flex;
-      gap: 0.5rem;
-      align-items: center;
-      flex-wrap: wrap;
-    }}
-
-    .filter-btn {{
-      background: rgba(255, 255, 255, 0.05);
-      border: 1px solid var(--card-border);
-      color: var(--text-muted);
-      padding: 0.45rem 0.9rem;
-      border-radius: 8px;
-      font-size: 0.85rem;
-      font-weight: 600;
-      cursor: pointer;
-      transition: all 0.2s;
-    }}
-
-    .filter-btn:hover {{
-      background: rgba(255, 255, 255, 0.1);
-      color: #fff;
-    }}
-
-    .filter-btn.active {{
-      background: var(--primary);
-      border-color: var(--primary);
-      color: #fff;
-    }}
-
-    .groups-list {{
-      display: flex;
-      flex-direction: column;
-      gap: 1.25rem;
-    }}
-
-    .group-card {{
-      background: var(--card-bg);
-      border: 1px solid var(--card-border);
-      border-radius: 16px;
-      overflow: hidden;
-    }}
-
-    .group-header {{
-      padding: 1.1rem 1.4rem;
-      background: rgba(255, 255, 255, 0.02);
-      border-bottom: 1px solid var(--card-border);
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      flex-wrap: wrap;
-      gap: 1rem;
-    }}
-
-    .group-title {{
-      font-weight: 700;
-      font-size: 1.05rem;
-      color: #fff;
-      display: flex;
-      align-items: center;
-      gap: 0.75rem;
-    }}
-
-    .badge {{
-      display: inline-block;
-      padding: 0.25rem 0.65rem;
-      border-radius: 6px;
-      font-size: 0.75rem;
-      font-weight: 700;
-    }}
-
-    .badge-cross {{
-      background: rgba(245, 158, 11, 0.2);
-      color: #fbbf24;
-      border: 1px solid rgba(245, 158, 11, 0.3);
-    }}
-
-    .badge-single {{
-      background: rgba(99, 102, 241, 0.2);
-      color: #a5b4fc;
-      border: 1px solid rgba(99, 102, 241, 0.3);
-    }}
-
-    .badge-wasted {{
-      background: rgba(239, 68, 68, 0.15);
-      color: #f87171;
-      border: 1px solid rgba(239, 68, 68, 0.25);
-    }}
-
-    .group-meta {{
-      display: flex;
-      align-items: center;
-      gap: 1rem;
-      font-size: 0.85rem;
-      color: var(--text-muted);
-    }}
-
-    .hash-code {{
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 0.75rem;
-      background: rgba(0, 0, 0, 0.3);
-      padding: 0.2rem 0.5rem;
-      border-radius: 4px;
-      color: #94a3b8;
-    }}
-
-    .file-items {{
-      padding: 0.75rem 1.25rem;
-      display: flex;
-      flex-direction: column;
-      gap: 0.5rem;
-    }}
-
-    .batch-toolbar {{
-      background: var(--card-bg);
-      border: 1px solid var(--card-border);
-      border-radius: 14px;
-      padding: 0.9rem 1.25rem;
-      margin-bottom: 1.5rem;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      flex-wrap: wrap;
-      gap: 1rem;
-    }}
-
-    .batch-title {{
-      font-size: 0.9rem;
-      font-weight: 700;
-      color: #fff;
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-    }}
-
-    .batch-btn-group {{
-      display: flex;
-      gap: 0.5rem;
-      flex-wrap: wrap;
-    }}
-
-    .batch-btn {{
-      background: rgba(255, 255, 255, 0.06);
-      border: 1px solid var(--card-border);
-      color: #e2e8f0;
-      padding: 0.4rem 0.85rem;
-      border-radius: 8px;
-      font-size: 0.82rem;
-      font-weight: 600;
-      cursor: pointer;
-      transition: all 0.2s;
-      display: flex;
-      align-items: center;
-      gap: 0.4rem;
-    }}
-
-    .batch-btn:hover {{
-      background: rgba(99, 102, 241, 0.25);
-      border-color: var(--primary-light);
-      color: #fff;
-    }}
-
-    .batch-btn.primary {{
-      background: rgba(99, 102, 241, 0.2);
-      border-color: rgba(99, 102, 241, 0.4);
-      color: #a5b4fc;
-    }}
-
-    .file-row {{
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 0.65rem 0.9rem;
-      background: rgba(11, 15, 25, 0.5);
-      border: 1px solid rgba(255, 255, 255, 0.04);
-      border-radius: 10px;
-      font-size: 0.85rem;
-      gap: 1rem;
-      transition: all 0.2s;
-    }}
-
-    .file-row:hover {{
-      background: rgba(255, 255, 255, 0.03);
-    }}
-
-    .file-row.is-selected {{
-      background: rgba(239, 68, 68, 0.12);
-      border-color: rgba(239, 68, 68, 0.35);
-    }}
-
-    .file-chk-label {{
-      display: flex;
-      align-items: center;
-      gap: 0.6rem;
-      cursor: pointer;
-      user-select: none;
-    }}
-
-    .file-chk {{
-      width: 1.15rem;
-      height: 1.15rem;
-      accent-color: #ef4444;
-      cursor: pointer;
-    }}
-
-    .file-path {{
-      font-family: 'JetBrains Mono', monospace;
-      color: #e2e8f0;
-      word-break: break-all;
-      flex: 1;
-    }}
-
-    .file-row.is-selected .file-path {{
-      color: #fca5a5;
-      text-decoration: line-through;
-      opacity: 0.85;
-    }}
-
-    .status-badge {{
-      display: inline-flex;
-      align-items: center;
-      padding: 0.2rem 0.55rem;
-      border-radius: 6px;
-      font-size: 0.72rem;
-      font-weight: 700;
-      white-space: nowrap;
-    }}
-
-    .status-keep {{
-      background: rgba(16, 185, 129, 0.15);
-      color: #34d399;
-      border: 1px solid rgba(16, 185, 129, 0.3);
-    }}
-
-    .status-del {{
-      background: rgba(239, 68, 68, 0.2);
-      color: #f87171;
-      border: 1px solid rgba(239, 68, 68, 0.4);
-    }}
-
-    .drive-tag {{
-      display: inline-block;
-      padding: 0.15rem 0.45rem;
-      border-radius: 4px;
-      font-weight: 700;
-      font-size: 0.75rem;
-      margin-right: 0.5rem;
-    }}
-
-    .drive-d {{ background: #0284c7; color: #fff; }}
-    .drive-e {{ background: #7c3aed; color: #fff; }}
-
-    .tree-root-banner {{
-      padding: 0.6rem 0.95rem;
-      background: rgba(99, 102, 241, 0.12);
-      border-bottom: 1px solid rgba(99, 102, 241, 0.25);
-      font-size: 0.8rem;
-      font-family: 'JetBrains Mono', monospace;
-      color: #c7d2fe;
-      display: flex;
-      align-items: center;
-      gap: 0.6rem;
-    }}
-
-    .tree-branch-header {{
-      display: flex;
-      align-items: center;
-      gap: 0.4rem;
-      font-size: 0.82rem;
-      font-family: 'JetBrains Mono', monospace;
-      color: #fbbf24;
-      padding: 0.45rem 0.65rem 0.25rem 0.65rem;
-      font-weight: 600;
-    }}
-
-    .tree-branch-header .branch-tag {{
-      background: rgba(245, 158, 11, 0.15);
-      border: 1px solid rgba(245, 158, 11, 0.3);
-      padding: 0.15rem 0.5rem;
-      border-radius: 6px;
-      color: #fde68a;
-    }}
-
-    .tree-files-wrap {{
-      padding-left: 1.5rem;
-      display: flex;
-      flex-direction: column;
-      gap: 0.35rem;
-    }}
-
-
-    .file-time {{
-      color: var(--text-muted);
-      white-space: nowrap;
-      font-size: 0.8rem;
-    }}
-
-    .btn-copy {{
-      background: rgba(255, 255, 255, 0.08);
-      border: none;
-      color: var(--text-muted);
-      padding: 0.3rem 0.6rem;
-      border-radius: 6px;
-      cursor: pointer;
-      font-size: 0.75rem;
-      transition: background 0.2s, color 0.2s;
-    }}
-
-    .btn-copy:hover {{
-      background: var(--primary);
-      color: #fff;
-    }}
-
-    /* STICKY BOTTOM SCRIPT GENERATOR BAR */
-    .sticky-script-bar {{
-      position: fixed;
-      bottom: 0;
-      left: 0;
-      right: 0;
-      z-index: 1000;
-      background: rgba(15, 23, 42, 0.94);
-      backdrop-filter: blur(16px);
-      border-top: 1px solid rgba(255, 255, 255, 0.12);
-      box-shadow: 0 -10px 35px rgba(0, 0, 0, 0.6);
-      padding: 1rem 2rem;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      flex-wrap: wrap;
-      gap: 1.25rem;
-      transform: translateY(0);
-      transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    }}
-
-    .bar-summary {{
-      display: flex;
-      align-items: center;
-      gap: 1.25rem;
-    }}
-
-    .bar-stat {{
-      display: flex;
-      flex-direction: column;
-    }}
-
-    .bar-stat-lbl {{
-      font-size: 0.72rem;
-      color: var(--text-muted);
-      text-transform: uppercase;
-      font-weight: 700;
-      letter-spacing: 0.05em;
-    }}
-
-    .bar-stat-val {{
-      font-size: 1.25rem;
-      font-weight: 800;
-      color: #fff;
-      font-family: 'JetBrains Mono', monospace;
-    }}
-
-    .bar-stat-val.red {{ color: #f87171; }}
-    .bar-stat-val.green {{ color: #34d399; }}
-
-    .platform-selector {{
-      display: flex;
-      align-items: center;
-      gap: 0.4rem;
-      background: rgba(0, 0, 0, 0.35);
-      padding: 0.35rem;
-      border-radius: 12px;
-      border: 1px solid var(--card-border);
-    }}
-
-    .plat-tab {{
-      background: transparent;
-      border: none;
-      color: var(--text-muted);
-      padding: 0.45rem 0.85rem;
-      border-radius: 8px;
-      font-size: 0.82rem;
-      font-weight: 600;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      gap: 0.4rem;
-      transition: all 0.2s;
-    }}
-
-    .plat-tab:hover {{
-      color: #fff;
-      background: rgba(255, 255, 255, 0.05);
-    }}
-
-    .plat-tab.active {{
-      background: var(--primary);
-      color: #fff;
-      font-weight: 700;
-      box-shadow: 0 2px 8px rgba(99, 102, 241, 0.35);
-    }}
-
-    .safe-mode-wrap {{
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-      font-size: 0.82rem;
-      color: #cbd5e1;
-      cursor: pointer;
-      user-select: none;
-      background: rgba(245, 158, 11, 0.1);
-      border: 1px solid rgba(245, 158, 11, 0.25);
-      padding: 0.45rem 0.85rem;
-      border-radius: 10px;
-    }}
-
-    .safe-mode-wrap input {{
-      accent-color: #f59e0b;
-      cursor: pointer;
-    }}
-
-    .bar-actions {{
-      display: flex;
-      align-items: center;
-      gap: 0.75rem;
-    }}
-
-    .btn-act {{
-      padding: 0.6rem 1.15rem;
-      border-radius: 10px;
-      font-size: 0.88rem;
-      font-weight: 700;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-      transition: all 0.2s;
-      border: none;
-    }}
-
-    .btn-copy-all {{
-      background: linear-gradient(135deg, #06b6d4, #0284c7);
-      color: #fff;
-      box-shadow: 0 4px 14px rgba(6, 182, 212, 0.3);
-    }}
-
-    .btn-copy-all:hover {{
-      filter: brightness(1.1);
-      transform: translateY(-1px);
-    }}
-
-    .btn-download {{
-      background: linear-gradient(135deg, #6366f1, #4f46e5);
-      color: #fff;
-      box-shadow: 0 4px 14px rgba(99, 102, 241, 0.3);
-    }}
-
-    .btn-download:hover {{
-      filter: brightness(1.1);
-      transform: translateY(-1px);
-    }}
-
-    .btn-preview {{
-      background: rgba(255, 255, 255, 0.1);
-      border: 1px solid var(--card-border);
-      color: #fff;
-    }}
-
-    .btn-preview:hover {{
-      background: rgba(255, 255, 255, 0.18);
-    }}
-
-    /* MODAL */
-    .modal-overlay {{
-      display: none;
-      position: fixed;
-      top: 0; left: 0; right: 0; bottom: 0;
-      background: rgba(0, 0, 0, 0.75);
-      backdrop-filter: blur(8px);
-      z-index: 2000;
-      align-items: center;
-      justify-content: center;
-      padding: 1.5rem;
-    }}
-
-    .modal-overlay.open {{ display: flex; }}
-
-    .modal-box {{
-      background: #111827;
-      border: 1px solid rgba(255, 255, 255, 0.15);
-      border-radius: 20px;
-      max-width: 900px;
-      width: 100%;
-      max-height: 85vh;
-      display: flex;
-      flex-direction: column;
-      overflow: hidden;
-      box-shadow: 0 25px 60px rgba(0, 0, 0, 0.8);
-    }}
-
-    .modal-head {{
-      padding: 1.25rem 1.5rem;
-      border-bottom: 1px solid var(--card-border);
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-    }}
-
-    .modal-head h3 {{
-      font-size: 1.15rem;
-      font-weight: 700;
-      color: #fff;
-    }}
-
-    .modal-close {{
-      background: transparent;
-      border: none;
-      color: var(--text-muted);
-      font-size: 1.5rem;
-      cursor: pointer;
-    }}
-
-    .modal-body {{
-      padding: 1.5rem;
-      overflow-y: auto;
-      flex: 1;
-    }}
-
-    .code-block {{
-      background: #030712;
-      border: 1px solid rgba(255, 255, 255, 0.08);
-      border-radius: 12px;
-      padding: 1.25rem;
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 0.82rem;
-      color: #7dd3fc;
-      white-space: pre;
-      overflow-x: auto;
-      line-height: 1.5;
-    }}
-
-    .toast {{
-      position: fixed;
-      top: 2rem;
-      right: 2rem;
-      z-index: 3000;
-      background: #10b981;
-      color: #fff;
-      padding: 0.9rem 1.5rem;
-      border-radius: 12px;
-      font-weight: 700;
-      box-shadow: 0 10px 25px rgba(16, 185, 129, 0.4);
-      display: none;
-      animation: fadeIn 0.3s;
-    }}
-
-    @keyframes fadeIn {{
-      from {{ opacity: 0; transform: translateY(-10px); }}
-      to {{ opacity: 1; transform: translateY(0); }}
-    }}
-
-    .footer {{
-      margin-top: 3.5rem;
-      padding-bottom: 5rem;
-      text-align: center;
-      color: var(--text-muted);
-      font-size: 0.85rem;
-    }}
-  </style>
+  <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <div class="toast" id="toast">✓ Komutlar panoya kopyalandı!</div>
+  <div class="toast" id="toast">✓ İşlem tamamlandı!</div>
 
   <div class="container">
     <header>
       <div class="header-left">
-        <h1>D: & E: Diskleri Kopya Dosya Raporu</h1>
+        <h1>{report_title}</h1>
         <p>SHA-256 Hash Bütünlüğü ile Doğrulanmış Mükerrer Dosya ve Alan Kurtarma Analizi</p>
       </div>
       <div class="header-badge">
@@ -1108,9 +397,9 @@ def generate_html(s, duplicates, html_path):
         <div class="stat-sub">Toplam {s['duplicate_files_count']} mükerrer dosya</div>
       </div>
       <div class="stat-card">
-        <div class="stat-title">D ↔ E Çapraz Kopyalar</div>
+        <div class="stat-title">Çapraz / Farklı Disk Kopyaları</div>
         <div class="stat-value highlight-warning">{s['cross_drive_groups_count']} grup</div>
-        <div class="stat-sub">İki diskte birden olan ortak dosyalar</div>
+        <div class="stat-sub">{s['cross_drive_wasted_formatted']} ortak alan israfı</div>
       </div>
       <div class="stat-card">
         <div class="stat-title">Taranan Toplam Boyut</div>
@@ -1130,12 +419,12 @@ def generate_html(s, duplicates, html_path):
           <p>Raporu incelediğinizde bazı projelerin (örn. video veya proje yedek klasörleri) tüm alt klasörleriyle birlikte birden fazla yere kopyalandığını görebilirsiniz. Tek tek dosya silmek yerine bu mükerrer klasörleri tek hamlede yönetebilirsiniz.</p>
         </div>
         <div class="advice-item">
-          <strong>💾 2. Çapraz Disk (D ↔ E) Senkronizasyonu</strong>
-          <p>E: sürücüsü genellikle harici/yedek disk olarak kullanılır. Eğer D:'deki veriyi E:'ye yedeklediyseniz bu normaldir; ancak her iki diskte de çalışıp değişiklik yapıyorsanız en güncel olanı tutup diğerini arşivleyebilirsiniz.</p>
+          <strong>💾 2. Çapraz Disk Senkronizasyonu</strong>
+          <p>Yedek disklerdeki mükerrer kopyalarda her iki diskte de değişiklik yapıyorsanız en güncel olanı tutup diğerini güvenli karantinaya alabilirsiniz.</p>
         </div>
         <div class="advice-item">
-          <strong>🛡️ 3. Güvenli Silme (Dry-Run ve Çöp Kutusu)</strong>
-          <p>Dosyaları kalıcı olarak silmeden önce bir <code>_SILINECEKLER</code> klasörüne taşıyıp sisteminizi birkaç gün test etmek veri kaybı riskini tamamen ortadan kaldırır.</p>
+          <strong>🛡️ 3. Güvenli Silme (Karantina Klasörü)</strong>
+          <p>Dosyaları kalıcı olarak silmeden önce bir <code>_SILINECEK_KOPYALAR</code> klasörüne taşımak veri kaybı riskini tamamen ortadan kaldırır.</p>
         </div>
       </div>
     </div>
@@ -1171,19 +460,27 @@ def generate_html(s, duplicates, html_path):
         <input type="text" id="searchInput" placeholder="Dosya adı, yol, uzantı (.mp4, .pdf) veya SHA-256 ara...">
       </div>
       <div class="filter-group">
+        <span class="filter-match-count" id="filterMatchCount">{s['duplicate_groups_count']} grup</span>
         <button class="filter-btn active" data-filter="all">Tümü ({s['duplicate_groups_count']})</button>
-        <button class="filter-btn" data-filter="cross">Hem D hem E ({s['cross_drive_groups_count']})</button>
-        <button class="filter-btn" data-filter="d">Sadece D ({s['only_d_groups_count']})</button>
-        <button class="filter-btn" data-filter="e">Sadece E ({s['only_e_groups_count']})</button>
+        {dynamic_filters_html}
         <button class="filter-btn" data-filter="large">Büyükler (>10MB) ({s['large_groups_count']})</button>
       </div>
     </div>
 
-    <!-- LİSTE -->
+    <!-- LİSTE (LAZY LOADED) -->
     <div class="groups-list" id="groupsList"></div>
 
+    <!-- LAZY LOADING TETİKLEYİCİSİ & LOAD MORE -->
+    <div class="load-more-wrap">
+      <div id="sentinel">
+        <div class="sentinel-spinner"></div>
+      </div>
+      <p id="renderedCountText" style="color:var(--text-muted); font-size:0.85rem; margin-bottom:0.75rem;"></p>
+      <button class="btn-load-more" id="loadMoreBtn" style="display:none;">Daha Fazla Göster</button>
+    </div>
+
     <div class="footer">
-      <p>Bu rapor Arşiv 360 tarafından SHA-256 hash doğrulaması ile üretilmiştir.</p>
+      <p>Bu rapor Arşiv 360 tarafından SHA-256 hash doğrulaması ve Lazy Loading mimarisi ile üretilmiştir.</p>
     </div>
   </div>
 
@@ -1251,563 +548,36 @@ def generate_html(s, duplicates, html_path):
     </div>
   </div>
 
-  <script>
-    const duplicateData = {dups_json};
-    let currentFilter = 'all';
-    let searchQuery = '';
-    let currentPlatform = 'powershell';
-    let currentViewMode = 'tree';
+  <script src="data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
+"""
+    with open(report_dir / "index.html", "w", encoding="utf-8") as f:
+        f.write(index_html)
 
-    // Set of selected file paths for deletion
-    const selectedPaths = new Set();
-
-    function toggleViewMode() {{
-      currentViewMode = currentViewMode === 'tree' ? 'list' : 'tree';
-      const btn = document.getElementById('btnViewToggle');
-      if (btn) {{
-        btn.innerHTML = currentViewMode === 'tree' ? '🌳 Ağaç Görünümü (Aktif)' : '📋 Düz Liste (Aktif)';
-      }}
-      renderList();
-    }}
-
-    function getCommonPathPrefix(paths) {{
-      if (!paths || paths.length === 0) return '';
-      if (paths.length === 1) {{
-        const p = paths[0];
-        const lastSlash = Math.max(p.lastIndexOf('\\\\'), p.lastIndexOf('/'));
-        return lastSlash > 0 ? p.substring(0, lastSlash) : '';
-      }}
-
-      const splitDirs = paths.map(p => {{
-        const lastSlash = Math.max(p.lastIndexOf('\\\\'), p.lastIndexOf('/'));
-        const dir = lastSlash > 0 ? p.substring(0, lastSlash) : p;
-        return dir.split(/[\\\\/]+/).filter(Boolean);
-      }});
-
-      const first = splitDirs[0];
-      const commonParts = [];
-
-      for (let i = 0; i < first.length; i++) {{
-        const part = first[i];
-        const allMatch = splitDirs.every(sd => i < sd.length && sd[i].toLowerCase() === part.toLowerCase());
-        if (allMatch) {{
-          commonParts.push(part);
-        }} else {{
-          break;
-        }}
-      }}
-
-      if (commonParts.length === 0) return '';
-      if (commonParts[0].includes(':')) {{
-        return commonParts[0] + '\\\\' + commonParts.slice(1).join('\\\\');
-      }}
-      return commonParts.join('\\\\');
-    }}
-
-    function organizeFilesIntoTree(files) {{
-      const paths = files.map(f => f.path).filter(Boolean);
-      const commonRoot = getCommonPathPrefix(paths);
-
-      const branchMap = {{}};
-      files.forEach(f => {{
-        const fullDir = f.directory || (f.path ? f.path.substring(0, Math.max(f.path.lastIndexOf('\\\\'), f.path.lastIndexOf('/'))) : '');
-        let relative = '';
-        if (commonRoot && fullDir.toLowerCase().startsWith(commonRoot.toLowerCase())) {{
-          relative = fullDir.substring(commonRoot.length).replace(/^[\\\\/]+/, '');
-        }} else {{
-          relative = fullDir;
-        }}
-        const branchKey = relative || '(Doğrudan Klasör)';
-        if (!branchMap[branchKey]) {{
-          branchMap[branchKey] = [];
-        }}
-        branchMap[branchKey].push(f);
-      }});
-
-      const branches = Object.keys(branchMap).map(subfolder => ({{
-        subfolder,
-        files: branchMap[subfolder]
-      }}));
-
-      return {{ commonRoot, branches }};
-    }}
-
-    function formatBytes(bytes) {{
-      if (!bytes || bytes === 0) return '0 B';
-      const k = 1024;
-      const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-      const i = Math.floor(Math.log(bytes) / Math.log(k));
-      return (bytes / Math.pow(k, i)).toFixed(2) + ' ' + sizes[i];
-    }}
-
-    function renderList() {{
-      const container = document.getElementById('groupsList');
-      container.innerHTML = '';
-
-      const filtered = duplicateData.filter(g => {{
-        if (currentFilter === 'cross' && !g.is_cross_drive) return false;
-        if (currentFilter === 'd' && (g.is_cross_drive || g.drives[0] !== 'D:')) return false;
-        if (currentFilter === 'e' && (g.is_cross_drive || g.drives[0] !== 'E:')) return false;
-        if (currentFilter === 'large' && g.size_bytes < 10 * 1024 * 1024) return false;
-
-        if (searchQuery) {{
-          const q = searchQuery.toLowerCase();
-          const matchHash = g.hash.toLowerCase().includes(q);
-          const matchFile = g.files.some(f => f.path.toLowerCase().includes(q) || f.filename.toLowerCase().includes(q));
-          if (!matchHash && !matchFile) return false;
-        }}
-        return true;
-      }});
-
-      if (filtered.length === 0) {{
-        container.innerHTML = '<div style="text-align:center; padding:3rem; color:var(--text-muted); background:var(--card-bg); border-radius:16px;">Arama kriterlerine uygun kopya dosya bulunamadı.</div>';
-        return;
-      }}
-
-      filtered.forEach((group, idx) => {{
-        const card = document.createElement('div');
-        card.className = 'group-card';
-        card.id = 'group-' + group.group_id;
-
-        const crossBadge = group.is_cross_drive 
-          ? '<span class="badge badge-cross">Çapraz Disk (D ↔ E)</span>'
-          : '<span class="badge badge-single">Disk: ' + group.drives.join(', ') + '</span>';
-
-        const selCountInGroup = group.files.filter(f => selectedPaths.has(f.path)).length;
-        const allSelected = selCountInGroup === group.files.length;
-        const treeData = organizeFilesIntoTree(group.files);
-
-        let itemsHtml = '';
-
-        if (currentViewMode === 'tree') {{
-          // TREE VIEW
-          let rootHtml = '';
-          if (treeData.commonRoot) {{
-            rootHtml = `
-              <div class="tree-root-banner">
-                <span>📁</span>
-                <strong style="color:#94a3b8; font-size:0.75rem; text-transform:uppercase;">Ortak Kök Dizin:</strong>
-                <span>${{escapeHtml(treeData.commonRoot)}}\\\\</span>
-              </div>
-            `;
-          }}
-
-          const branchesHtml = treeData.branches.map(b => {{
-            const filesHtml = b.files.map((f, fIdx) => {{
-              const driveClass = f.drive === 'D:' ? 'drive-d' : 'drive-e';
-              const isSelected = selectedPaths.has(f.path);
-              const rowClass = isSelected ? 'file-row is-selected' : 'file-row';
-              const statusHtml = isSelected
-                ? '<span class="status-badge status-del">Silinecek</span>'
-                : '<span class="status-badge status-keep">Saklanacak</span>';
-
-              return `
-                <div class="${{rowClass}}" id="row-${{idx}}-${{fIdx}}">
-                  <label class="file-chk-label">
-                    <span style="color:#64748b; font-family:monospace;">└──</span>
-                    <input type="checkbox" class="file-chk" ${{isSelected ? 'checked' : ''}} 
-                      onchange="toggleFileSelection('${{escapeJs(f.path)}}', this.checked)">
-                    ${{statusHtml}}
-                  </label>
-                  <div class="file-path">
-                    📄 <strong>${{escapeHtml(f.filename)}}</strong>
-                  </div>
-                  <div class="file-time">${{f.modified}}</div>
-                  <button class="btn-copy" onclick="navigator.clipboard.writeText('${{escapeJs(f.path)}}'); showToast('Dosya yolu kopyalandı!')">Yolu Kopyala</button>
-                </div>
-              `;
-            }}).join('');
-
-            return `
-              <div style="margin-bottom:0.75rem;">
-                <div class="tree-branch-header">
-                  <span style="color:#818cf8;">├──</span>
-                  <span>📂</span>
-                  <span class="branch-tag">${{escapeHtml(b.subfolder)}}</span>
-                </div>
-                <div class="tree-files-wrap">
-                  ${{filesHtml}}
-                </div>
-              </div>
-            `;
-          }}).join('');
-
-          itemsHtml = `
-            ${{rootHtml}}
-            <div style="padding:0.75rem 1rem;">
-              ${{branchesHtml}}
-            </div>
-          `;
-        }} else {{
-          // FLAT LIST VIEW
-          const fileRows = group.files.map((f, fIdx) => {{
-            const driveClass = f.drive === 'D:' ? 'drive-d' : 'drive-e';
-            const isSelected = selectedPaths.has(f.path);
-            const rowClass = isSelected ? 'file-row is-selected' : 'file-row';
-            const statusHtml = isSelected
-              ? '<span class="status-badge status-del">Silinecek</span>'
-              : '<span class="status-badge status-keep">Saklanacak</span>';
-
-            return `
-              <div class="${{rowClass}}" id="row-${{idx}}-${{fIdx}}">
-                <label class="file-chk-label">
-                  <input type="checkbox" class="file-chk" ${{isSelected ? 'checked' : ''}} 
-                    onchange="toggleFileSelection('${{escapeJs(f.path)}}', this.checked)">
-                  ${{statusHtml}}
-                </label>
-                <div class="file-path">
-                  <span class="drive-tag ${{driveClass}}">${{f.drive}}</span>${{escapeHtml(f.path)}}
-                </div>
-                <div class="file-time">${{f.modified}}</div>
-                <button class="btn-copy" onclick="navigator.clipboard.writeText('${{escapeJs(f.path)}}'); showToast('Dosya yolu kopyalandı!')">Yolu Kopyala</button>
-              </div>
-            `;
-          }}).join('');
-
-          itemsHtml = `<div class="file-items">${{fileRows}}</div>`;
-        }}
-
-        const warningBanner = allSelected
-          ? '<span style="font-size:0.75rem; color:#f87171; font-weight:700; background:rgba(239,68,68,0.15); padding:0.2rem 0.5rem; border-radius:6px; border:1px solid rgba(239,68,68,0.3);">⚠️ DİKKAT: Gruptaki tüm kopyalar seçili!</span>'
-          : '';
-
-        card.innerHTML = `
-          <div class="group-header">
-            <div class="group-title">
-              <span>${{idx + 1}}. ${{escapeHtml(group.files[0].filename)}}</span>
-              ${{crossBadge}}
-              <span class="badge badge-wasted">-${{group.wasted_formatted}} israf</span>
-              ${{warningBanner}}
-            </div>
-            <div class="group-meta">
-              <span>Tekil: <strong>${{group.size_formatted}}</strong></span>
-              <span>Adet: <strong>${{group.count}}</strong></span>
-              <span class="hash-code" title="${{group.hash}}">SHA: ${{group.hash.substring(0, 14)}}...</span>
-            </div>
-          </div>
-          ${{itemsHtml}}
-        `;
-        container.appendChild(card);
-      }});
-
-      updateScriptStats();
-    }}
-
-    function toggleFileSelection(path, isChecked) {{
-      if (isChecked) {{
-        selectedPaths.add(path);
-      }} else {{
-        selectedPaths.delete(path);
-      }}
-      renderList();
-    }}
-
-    function autoSelectKeepFirst() {{
-      selectedPaths.clear();
-      duplicateData.forEach(g => {{
-        // Keep file 0, select files 1..N
-        for (let i = 1; i < g.files.length; i++) {{
-          selectedPaths.add(g.files[i].path);
-        }}
-      }});
-      renderList();
-      showToast('Her gruptan 1 orijinal saklandı, kalan ' + selectedPaths.size + ' kopya seçildi!');
-    }}
-
-    function autoSelectKeepNewest() {{
-      selectedPaths.clear();
-      duplicateData.forEach(g => {{
-        // Sort files descending by modified date
-        const sorted = [...g.files].sort((a, b) => (b.modified || '').localeCompare(a.modified || ''));
-        // Keep sorted[0] (newest), delete sorted[1..N]
-        for (let i = 1; i < sorted.length; i++) {{
-          selectedPaths.add(sorted[i].path);
-        }}
-      }});
-      renderList();
-      showToast('En yeni kopyalar saklandı, eski kopyalar seçildi!');
-    }}
-
-    function autoSelectKeepOldest() {{
-      selectedPaths.clear();
-      duplicateData.forEach(g => {{
-        const sorted = [...g.files].sort((a, b) => (a.modified || '').localeCompare(b.modified || ''));
-        for (let i = 1; i < sorted.length; i++) {{
-          selectedPaths.add(sorted[i].path);
-        }}
-      }});
-      renderList();
-      showToast('En eski kopyalar saklandı, yeni kopyalar seçildi!');
-    }}
-
-    function clearAllSelections() {{
-      selectedPaths.clear();
-      renderList();
-      showToast('Tüm seçimler temizlendi.');
-    }}
-
-    function calculateSelectedSize() {{
-      let total = 0;
-      duplicateData.forEach(g => {{
-        g.files.forEach(f => {{
-          if (selectedPaths.has(f.path)) {{
-            total += g.size_bytes;
-          }}
-        }});
-      }});
-      return total;
-    }}
-
-    function updateScriptStats() {{
-      const count = selectedPaths.size;
-      const sizeBytes = calculateSelectedSize();
-
-      document.getElementById('selCount').innerText = count + ' dosya';
-      document.getElementById('selSize').innerText = formatBytes(sizeBytes);
-    }}
-
-    function setPlatform(plat) {{
-      currentPlatform = plat;
-      document.querySelectorAll('.plat-tab').forEach(t => {{
-        t.classList.toggle('active', t.dataset.plat === plat);
-      }});
-      if (document.getElementById('previewModal').classList.contains('open')) {{
-        openPreviewModal();
-      }}
-    }}
-
-    function generateScriptText() {{
-      const paths = Array.from(selectedPaths);
-      const isSafe = document.getElementById('safeModeChbox').checked;
-      const totalSize = formatBytes(calculateSelectedSize());
-      const now = new Date().toLocaleString('tr-TR');
-
-      if (paths.length === 0) {{
-        return '# Henuz silinecek dosya secilmedi.\\n# Lutfen yukaridaki dosyalardan secin veya \"Ilkini Tut, Kalanlari Sec\" butonuna tiklayin.';
-      }}
-
-      if (currentPlatform === 'powershell') {{
-        if (isSafe) {{
-          return `# ========================================================\\n` +
-                 `# Arşiv 360 - Güvenli Kopya Taşıma Betiği (PowerShell)\\n` +
-                 `# Tarih: ${{now}}\\n` +
-                 `# Taşınacak Dosya: ${{paths.length}} adet (${{totalSize}})\\n` +
-                 `# ========================================================\\n` +
-                 `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8\\n` +
-                 `$ErrorActionPreference = \"Continue\"\\n\\n` +
-                 `$targetRoot = \"_SILINECEK_KOPYALAR\"\\n` +
-                 `Write-Host \"Kopya dosyalar güvenli karantinaya taşınıyor...\" -ForegroundColor Cyan\\n\\n` +
-                 `$files = @(\\n` +
-                 paths.map(p => `    \"${{p.replace(/`/g, '``').replace(/\\$/g, '`$')}}\"`).join(',\\n') +
-                 `\\n)\\n\\n` +
-                 `$success = 0; $fail = 0\\n` +
-                 `foreach ($f in $files) {{\\n` +
-                 `    if (Test-Path -LiteralPath $f) {{\\n` +
-                 `        try {{\\n` +
-                 `            $drive = (Get-Item -LiteralPath $f).PSDrive.Name + \":\\\\\"\\n` +
-                 `            $destFolder = Join-Path $drive $targetRoot\\n` +
-                 `            if (-not (Test-Path -LiteralPath $destFolder)) {{ New-Item -ItemType Directory -Path $destFolder -Force | Out-Null }}\\n` +
-                 `            Move-Item -LiteralPath $f -Destination $destFolder -Force -ErrorAction Stop\\n` +
-                 `            Write-Host \"  [✓ Taşındı] $f -> $destFolder\" -ForegroundColor Green\\n` +
-                 `            $success++\\n` +
-                 `        }} catch {{\\n` +
-                 `            Write-Host \"  [X Hata] $f ($($_.Exception.Message))\" -ForegroundColor Red\\n` +
-                 `            $fail++\\n` +
-                 `        }}\\n` +
-                 `    }} else {{\\n` +
-                 `        Write-Host \"  [-] Bulunamadı: $f\" -ForegroundColor Yellow\\n` +
-                 `    }}\\n` +
-                 `}}\\n\\n` +
-                 `Write-Host \"\\nİşlem Tamamlandı! Başarılı: $success | Hata: $fail\" -ForegroundColor Cyan\\n` +
-                 `Write-Host \"Dosyalarınız disk kökündeki '_SILINECEK_KOPYALAR' klasörüne taşındı.\" -ForegroundColor Yellow\\n` +
-                 `pause\\n`;
-        }} else {{
-          return `# ========================================================\\n` +
-                 `# Arşiv 360 - Kalıcı Kopya Silme Betiği (PowerShell)\\n` +
-                 `# Tarih: ${{now}}\\n` +
-                 `# Silinecek Dosya: ${{paths.length}} adet (${{totalSize}})\\n` +
-                 `# ========================================================\\n` +
-                 `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8\\n` +
-                 `$ErrorActionPreference = \"Continue\"\\n\\n` +
-                 `$confirm = Read-Host \"${{paths.length}} adet kopya dosya KALICI OLARAK silinecektir. Devam etmek için 'EVET' yazın\"\\n` +
-                 `if ($confirm -ne 'EVET') {{ Write-Host 'İşlem iptal edildi.' -ForegroundColor Yellow; exit }}\\n\\n` +
-                 `$files = @(\\n` +
-                 paths.map(p => `    \"${{p.replace(/`/g, '``').replace(/\\$/g, '`$')}}\"`).join(',\\n') +
-                 `\\n)\\n\\n` +
-                 `$deleted = 0\\n` +
-                 `foreach ($f in $files) {{\\n` +
-                 `    if (Test-Path -LiteralPath $f) {{\\n` +
-                 `        try {{\\n` +
-                 `            Remove-Item -LiteralPath $f -Force -ErrorAction Stop\\n` +
-                 `            Write-Host \"  [✓ Silindi] $f\" -ForegroundColor Green\\n` +
-                 `            $deleted++\\n` +
-                 `        }} catch {{\\n` +
-                 `            Write-Host \"  [X Hata] $f ($($_.Exception.Message))\" -ForegroundColor Red\\n` +
-                 `        }}\\n` +
-                 `    }}\\n` +
-                 `}}\\n\\n` +
-                 `Write-Host \"\\nToplam Silinen: $deleted dosya.\" -ForegroundColor Cyan\\npause\\n`;
-        }}
-      }}
-
-      if (currentPlatform === 'cmd') {{
-        if (isSafe) {{
-          const lines = [
-            `@echo off`,
-            `chcp 65001 > nul`,
-            `title Arşiv 360 - Kopya Taşıma`,
-            `echo ========================================================`,
-            `echo Arşiv 360 - Kopya Dosyaları _SILINECEKLER Klasörüne Taşıma`,
-            `echo Taşınacak Dosya: ${{paths.length}} adet (${{totalSize}})`,
-            `echo ========================================================`,
-            `echo.`,
-            `pause`
-          ];
-          paths.forEach(p => {{
-            const drv = p.substring(0, 2);
-            lines.push(`if not exist \"${{drv}}\\_SILINECEK_KOPYALAR\" mkdir \"${{drv}}\\_SILINECEK_KOPYALAR\" >nul 2>&1`);
-            lines.push(`move /y \"${{p}}\" \"${{drv}}\\_SILINECEK_KOPYALAR\\\" >nul 2>&1 && echo [OK] ${{p}} || echo [HATA] ${{p}}`);
-          }});
-          lines.push(`echo.`, `echo İşlem tamamlandı. Dosyalar _SILINECEK_KOPYALAR klasörüne taşındı.`, `pause`);
-          return lines.join('\\n');
-        }} else {{
-          const lines = [
-            `@echo off`,
-            `chcp 65001 > nul`,
-            `title Arşiv 360 - Kalıcı Kopya Silme`,
-            `echo ========================================================`,
-            `echo DİKKAT: ${{paths.length}} adet dosya kalıcı olarak silinecek!`,
-            `echo Kurtarılacak Alan: ${{totalSize}}`,
-            `echo ========================================================`,
-            `set /p onay=\"Onaylıyor musunuz? (E/H): \"`,
-            `if /i not \"%onay%\"==\"E\" exit /b`,
-            `echo.`
-          ];
-          paths.forEach(p => {{
-            lines.push(`del /f /q \"${{p}}\" 2>nul && echo [SILINDI] ${{p}} || echo [BULUNAMADI/HATA] ${{p}}`);
-          }});
-          lines.push(`echo.`, `echo Tamamlandı.`, `pause`);
-          return lines.join('\\n');
-        }}
-      }}
-
-      if (currentPlatform === 'bash') {{
-        const lines = [
-          `#!/usr/bin/env bash`,
-          `# ========================================================`,
-          `# Arşiv 360 - Kopya Dosya Temizleme Betiği (macOS & Linux)`,
-          `# Dosya Sayısı: ${{paths.length}} adet (${{totalSize}})`,
-          `# ========================================================`,
-          `set -euo pipefail`,
-          `echo \"Toplam ${{paths.length}} dosya işlenecek...\"`
-        ];
-        if (isSafe) {{
-          lines.push(
-            `mkdir -p \"./_SILINECEK_KOPYALAR\"`,
-            `echo \"Dosyalar ./_SILINECEK_KOPYALAR klasörüne taşınıyor...\"`
-          );
-          paths.forEach(p => {{
-            // Convert Windows path to slash if needed
-            const posixPath = p.replace(/\\\\/g, '/');
-            lines.push(`mv -f \"${{posixPath}}\" \"./_SILINECEK_KOPYALAR/\" 2>/dev/null || true`);
-          }});
-        }} else {{
-          lines.push(
-            `read -p \"Dosyaları kalıcı olarak silmek istiyor musunuz? (e/h): \" onay`,
-            `if [[ \"$onay\" != \"e\" && \"$onay\" != \"E\" ]]; then echo \"İptal edildi.\"; exit 0; fi`
-          );
-          paths.forEach(p => {{
-            const posixPath = p.replace(/\\\\/g, '/');
-            lines.push(`rm -f \"${{posixPath}}\"`);
-          }});
-        }}
-        lines.push(`echo \"İşlem tamamlandı!\"`);
-        return lines.join('\\n');
-      }}
-
-      return '';
-    }}
-
-    function copyScriptToClipboard() {{
-      const text = generateScriptText();
-      navigator.clipboard.writeText(text).then(() => {{
-        showToast('✓ ' + currentPlatform.toUpperCase() + ' komutları panoya kopyalandı!');
-      }});
-    }}
-
-    function downloadScript() {{
-      const text = generateScriptText();
-      const ext = currentPlatform === 'powershell' ? 'ps1' : currentPlatform === 'cmd' ? 'bat' : 'sh';
-      const filename = `arsiv360_kopya_temizle_${{Date.now()}}.${{ext}}`;
-      
-      const blob = new Blob([text], {{ type: 'text/plain;charset=utf-8' }});
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-
-      showToast('✓ ' + filename + ' dosyası indirildi!');
-    }}
-
-    function openPreviewModal() {{
-      const code = generateScriptText();
-      const titles = {{
-        powershell: 'Windows PowerShell Betiği (.ps1)',
-        cmd: 'Windows CMD / Batch Betiği (.bat)',
-        bash: 'macOS & Linux Bash Betiği (.sh)'
-      }};
-      document.getElementById('modalTitle').innerText = titles[currentPlatform] || 'Betiği Önizle';
-      document.getElementById('modalCode').innerText = code;
-      document.getElementById('previewModal').classList.add('open');
-    }}
-
-    function closePreviewModal() {{
-      document.getElementById('previewModal').classList.remove('open');
-    }}
-
-    function showToast(msg) {{
-      const t = document.getElementById('toast');
-      t.innerText = msg;
-      t.style.display = 'block';
-      setTimeout(() => {{
-        t.style.display = 'none';
-      }}, 3500);
-    }}
-
-    function escapeHtml(str) {{
-      return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
-    }}
-
-    function escapeJs(str) {{
-      return str.replace(/\\\\/g, '\\\\\\\\').replace(/'/g, "\\\\'");
-    }}
-
-    document.querySelectorAll('.filter-btn').forEach(btn => {{
-      btn.addEventListener('click', () => {{
-        document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        currentFilter = btn.dataset.filter;
-        renderList();
-      }});
-    }});
-
-    document.getElementById('searchInput').addEventListener('input', (e) => {{
-      searchQuery = e.target.value.trim();
-      renderList();
-    }});
-
-    // Initial render
-    renderList();
-  </script>
+    # 5. Redirect wrapper in duplicate_report.html
+    redirect_html = f"""<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="refresh" content="0; url=rapor_kopya/index.html">
+  <script>window.location.replace("rapor_kopya/index.html");</script>
+  <title>{report_title} | Arşiv 360</title>
+</head>
+<body style="font-family:'Segoe UI', sans-serif; background:#0b0f19; color:#f3f4f6; padding:3rem; text-align:center;">
+  <h2>Arşiv 360 - {report_title}</h2>
+  <p>Yüksek performanslı ve Lazy-Loaded rapor klasörüne yönlendiriliyorsunuz...</p>
+  <p><a href="rapor_kopya/index.html" style="color:#818cf8; text-decoration:underline;">Açılmazsa buraya tıklayın (rapor_kopya/index.html)</a></p>
 </body>
 </html>
 """
     with open(html_path, "w", encoding="utf-8") as f:
-        f.write(html)
+        f.write(redirect_html)
+
+def generate_html(s, duplicates, html_path):
+    report_dir = Path(html_path).parent / "rapor_kopya"
+    generate_report_bundle(s, duplicates, report_dir, html_path)
 
 
 if __name__ == "__main__":

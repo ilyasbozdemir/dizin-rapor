@@ -32,6 +32,7 @@ duplicate_report.*
 migration_plan.*
 siniflandirma.*
 rapor_duzenli/
+rapor_kopya/
 00_INDEKS.html
 
 # Backups & Logs

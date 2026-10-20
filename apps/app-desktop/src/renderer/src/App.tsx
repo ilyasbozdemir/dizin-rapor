@@ -217,6 +217,7 @@ export default function App() {
 
   // Dynamic Python Runner Source & Target Directories
   const [runnerSourceDir, setRunnerSourceDir] = useState<string>("E:\\");
+  const [scannerDrives, setScannerDrives] = useState<string[]>(["D:\\", "E:\\"]);
   const [runnerTargetDir, setRunnerTargetDir] = useState<string>(
     "D:\\E_BIRLESTIRME",
   );
@@ -353,6 +354,12 @@ export default function App() {
       .then((drives) => {
         if (drives && drives.length > 0) {
           setSystemDrives(drives);
+          const availableTargetDrives = drives
+            .filter((d) => ["D", "E"].includes(d.letter.toUpperCase()))
+            .map((d) => d.path);
+          if (availableTargetDrives.length > 0) {
+            setScannerDrives(availableTargetDrives);
+          }
         }
       })
       .catch(() => {});
@@ -2248,21 +2255,81 @@ export default function App() {
                     scanner.py
                   </span>
                 </div>
-                <p className="text-xs text-slate-600 dark:text-gray-400 leading-relaxed">
-                  Seçili kaynak dizini
-                  (<b className="font-mono text-cyan-600 dark:text-cyan-300 truncate inline-block max-w-[140px] align-bottom">
-                    {runnerSourceDir}
-                  </b>) tarar, birebir eşleşen kopyaların SHA-256 hash raporunu
-                  çıkarır.
+                <p className="text-xs text-slate-600 dark:text-gray-400 leading-relaxed mb-2.5">
+                  Seçilen sürücülerdeki birebir eşleşen kopyaları SHA-256 hash ile doğrular ve rapor üretir.
                 </p>
+
+                {/* Sürücü Seçim Alanı */}
+                <div className="p-2.5 rounded-lg bg-slate-50 dark:bg-[#162138] border border-slate-200 dark:border-white/5 mb-3">
+                  <div className="text-[11px] font-semibold text-slate-700 dark:text-gray-300 mb-2 flex items-center justify-between">
+                    <span>Taranacak Hedefler ({scannerDrives.length}):</span>
+                    <div className="flex gap-2 text-[10px]">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const de = systemDrives
+                            .filter(d => ['D', 'E'].includes(d.letter.toUpperCase()))
+                            .map(d => d.path);
+                          setScannerDrives(de.length > 0 ? de : ['D:\\', 'E:\\']);
+                        }}
+                        className="text-cyan-600 dark:text-cyan-400 hover:underline font-bold"
+                      >
+                        D: + E:
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setScannerDrives([runnerSourceDir])}
+                        className="text-slate-500 hover:underline"
+                      >
+                        Sadece {runnerSourceDir}
+                      </button>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {systemDrives.map((d) => {
+                      const isSelected = scannerDrives.includes(d.path);
+                      return (
+                        <button
+                          key={'scan-drv-' + d.path}
+                          type="button"
+                          onClick={() => {
+                            if (isSelected) {
+                              if (scannerDrives.length > 1) {
+                                setScannerDrives(scannerDrives.filter((p) => p !== d.path));
+                              }
+                            } else {
+                              setScannerDrives([...scannerDrives, d.path]);
+                            }
+                          }}
+                          className={`px-2.5 py-1 rounded text-xs font-mono font-bold border transition flex items-center gap-1.5 ${
+                            isSelected
+                              ? 'bg-cyan-500/20 text-cyan-400 border-cyan-500/40 shadow-xs'
+                              : 'border-slate-200 dark:border-white/10 text-slate-400 hover:bg-white/5'
+                          }`}
+                        >
+                          <span className={isSelected ? 'text-cyan-400 font-black' : 'text-slate-400'}>
+                            {isSelected ? '☑' : '☐'}
+                          </span>
+                          <span>{d.letter}:</span>
+                          <span className="text-[10px] font-normal opacity-70">
+                            {d.letter === 'D' ? '(417GB)' : d.letter === 'E' ? '(8GB)' : ''}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
               </div>
               <button
-                disabled={!!runningTaskId}
+                disabled={!!runningTaskId || scannerDrives.length === 0}
                 onClick={() =>
-                  runScript("scanner", "scanner.py", [runnerSourceDir])}
-                className="mt-4 py-2 bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 text-white rounded-lg text-xs font-semibold flex items-center justify-center gap-2 shadow-md shadow-cyan-600/20"
+                  runScript("scanner", "scanner.py", scannerDrives)}
+                className="mt-2 py-2 bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 text-white rounded-lg text-xs font-semibold flex items-center justify-center gap-2 shadow-md shadow-cyan-600/20"
               >
-                <Play className="w-3.5 h-3.5" /> Seçili Dizini Tara
+                <Play className="w-3.5 h-3.5" />
+                <span>
+                  {scannerDrives.map(p => p.replace(/\\$/, '')).join(' + ')} Tara ({scannerDrives.length} Sürücü)
+                </span>
               </button>
             </div>
 
@@ -2707,8 +2774,15 @@ export default function App() {
                       Mükerrer dosya kaydı bulunamadı veya henüz tarama yapılmadı.
                     </p>
                     <p className="text-xs text-slate-500 dark:text-gray-400 mt-1 max-w-md mx-auto">
-                      "scanner.py" betiğini Python Konsolu sekmesinden çalıştırarak sürücülerinizdeki mükerrer dosyaları anında tarayabilirsiniz.
+                      D: ve E: disklerindeki mükerrer kopyaları tespit etmek için tek tıkla tarama başlatabilirsiniz.
                     </p>
+                    <button
+                      disabled={!!runningTaskId}
+                      onClick={() => runScript("scanner", "scanner.py", scannerDrives.length > 0 ? scannerDrives : ["D:\\", "E:\\"])}
+                      className="mt-4 px-4 py-2 bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 text-white text-xs font-bold rounded-lg shadow-md flex items-center gap-2 mx-auto"
+                    >
+                      <Play className="w-3.5 h-3.5" /> D: ve E: Disklerini Birlikte Tara
+                    </button>
                   </div>
                 ) : (
                   duplicateList.slice(0, 50).map((group: any, idx: number) => {
