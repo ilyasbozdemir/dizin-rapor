@@ -625,16 +625,96 @@ def generate_html(s, duplicates, html_path):
       gap: 0.5rem;
     }}
 
+    .batch-toolbar {{
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 14px;
+      padding: 0.9rem 1.25rem;
+      margin-bottom: 1.5rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 1rem;
+    }}
+
+    .batch-title {{
+      font-size: 0.9rem;
+      font-weight: 700;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }}
+
+    .batch-btn-group {{
+      display: flex;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+    }}
+
+    .batch-btn {{
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid var(--card-border);
+      color: #e2e8f0;
+      padding: 0.4rem 0.85rem;
+      border-radius: 8px;
+      font-size: 0.82rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }}
+
+    .batch-btn:hover {{
+      background: rgba(99, 102, 241, 0.25);
+      border-color: var(--primary-light);
+      color: #fff;
+    }}
+
+    .batch-btn.primary {{
+      background: rgba(99, 102, 241, 0.2);
+      border-color: rgba(99, 102, 241, 0.4);
+      color: #a5b4fc;
+    }}
+
     .file-row {{
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 0.6rem 0.8rem;
+      padding: 0.65rem 0.9rem;
       background: rgba(11, 15, 25, 0.5);
       border: 1px solid rgba(255, 255, 255, 0.04);
-      border-radius: 8px;
+      border-radius: 10px;
       font-size: 0.85rem;
       gap: 1rem;
+      transition: all 0.2s;
+    }}
+
+    .file-row:hover {{
+      background: rgba(255, 255, 255, 0.03);
+    }}
+
+    .file-row.is-selected {{
+      background: rgba(239, 68, 68, 0.12);
+      border-color: rgba(239, 68, 68, 0.35);
+    }}
+
+    .file-chk-label {{
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      cursor: pointer;
+      user-select: none;
+    }}
+
+    .file-chk {{
+      width: 1.15rem;
+      height: 1.15rem;
+      accent-color: #ef4444;
+      cursor: pointer;
     }}
 
     .file-path {{
@@ -642,6 +722,34 @@ def generate_html(s, duplicates, html_path):
       color: #e2e8f0;
       word-break: break-all;
       flex: 1;
+    }}
+
+    .file-row.is-selected .file-path {{
+      color: #fca5a5;
+      text-decoration: line-through;
+      opacity: 0.85;
+    }}
+
+    .status-badge {{
+      display: inline-flex;
+      align-items: center;
+      padding: 0.2rem 0.55rem;
+      border-radius: 6px;
+      font-size: 0.72rem;
+      font-weight: 700;
+      white-space: nowrap;
+    }}
+
+    .status-keep {{
+      background: rgba(16, 185, 129, 0.15);
+      color: #34d399;
+      border: 1px solid rgba(16, 185, 129, 0.3);
+    }}
+
+    .status-del {{
+      background: rgba(239, 68, 68, 0.2);
+      color: #f87171;
+      border: 1px solid rgba(239, 68, 68, 0.4);
     }}
 
     .drive-tag {{
@@ -678,8 +786,255 @@ def generate_html(s, duplicates, html_path):
       color: #fff;
     }}
 
+    /* STICKY BOTTOM SCRIPT GENERATOR BAR */
+    .sticky-script-bar {{
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      z-index: 1000;
+      background: rgba(15, 23, 42, 0.94);
+      backdrop-filter: blur(16px);
+      border-top: 1px solid rgba(255, 255, 255, 0.12);
+      box-shadow: 0 -10px 35px rgba(0, 0, 0, 0.6);
+      padding: 1rem 2rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 1.25rem;
+      transform: translateY(0);
+      transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }}
+
+    .bar-summary {{
+      display: flex;
+      align-items: center;
+      gap: 1.25rem;
+    }}
+
+    .bar-stat {{
+      display: flex;
+      flex-direction: column;
+    }}
+
+    .bar-stat-lbl {{
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+    }}
+
+    .bar-stat-val {{
+      font-size: 1.25rem;
+      font-weight: 800;
+      color: #fff;
+      font-family: 'JetBrains Mono', monospace;
+    }}
+
+    .bar-stat-val.red {{ color: #f87171; }}
+    .bar-stat-val.green {{ color: #34d399; }}
+
+    .platform-selector {{
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      background: rgba(0, 0, 0, 0.35);
+      padding: 0.35rem;
+      border-radius: 12px;
+      border: 1px solid var(--card-border);
+    }}
+
+    .plat-tab {{
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      padding: 0.45rem 0.85rem;
+      border-radius: 8px;
+      font-size: 0.82rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      transition: all 0.2s;
+    }}
+
+    .plat-tab:hover {{
+      color: #fff;
+      background: rgba(255, 255, 255, 0.05);
+    }}
+
+    .plat-tab.active {{
+      background: var(--primary);
+      color: #fff;
+      font-weight: 700;
+      box-shadow: 0 2px 8px rgba(99, 102, 241, 0.35);
+    }}
+
+    .safe-mode-wrap {{
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.82rem;
+      color: #cbd5e1;
+      cursor: pointer;
+      user-select: none;
+      background: rgba(245, 158, 11, 0.1);
+      border: 1px solid rgba(245, 158, 11, 0.25);
+      padding: 0.45rem 0.85rem;
+      border-radius: 10px;
+    }}
+
+    .safe-mode-wrap input {{
+      accent-color: #f59e0b;
+      cursor: pointer;
+    }}
+
+    .bar-actions {{
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }}
+
+    .btn-act {{
+      padding: 0.6rem 1.15rem;
+      border-radius: 10px;
+      font-size: 0.88rem;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      transition: all 0.2s;
+      border: none;
+    }}
+
+    .btn-copy-all {{
+      background: linear-gradient(135deg, #06b6d4, #0284c7);
+      color: #fff;
+      box-shadow: 0 4px 14px rgba(6, 182, 212, 0.3);
+    }}
+
+    .btn-copy-all:hover {{
+      filter: brightness(1.1);
+      transform: translateY(-1px);
+    }}
+
+    .btn-download {{
+      background: linear-gradient(135deg, #6366f1, #4f46e5);
+      color: #fff;
+      box-shadow: 0 4px 14px rgba(99, 102, 241, 0.3);
+    }}
+
+    .btn-download:hover {{
+      filter: brightness(1.1);
+      transform: translateY(-1px);
+    }}
+
+    .btn-preview {{
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid var(--card-border);
+      color: #fff;
+    }}
+
+    .btn-preview:hover {{
+      background: rgba(255, 255, 255, 0.18);
+    }}
+
+    /* MODAL */
+    .modal-overlay {{
+      display: none;
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0, 0, 0, 0.75);
+      backdrop-filter: blur(8px);
+      z-index: 2000;
+      align-items: center;
+      justify-content: center;
+      padding: 1.5rem;
+    }}
+
+    .modal-overlay.open {{ display: flex; }}
+
+    .modal-box {{
+      background: #111827;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 20px;
+      max-width: 900px;
+      width: 100%;
+      max-height: 85vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      box-shadow: 0 25px 60px rgba(0, 0, 0, 0.8);
+    }}
+
+    .modal-head {{
+      padding: 1.25rem 1.5rem;
+      border-bottom: 1px solid var(--card-border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }}
+
+    .modal-head h3 {{
+      font-size: 1.15rem;
+      font-weight: 700;
+      color: #fff;
+    }}
+
+    .modal-close {{
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      font-size: 1.5rem;
+      cursor: pointer;
+    }}
+
+    .modal-body {{
+      padding: 1.5rem;
+      overflow-y: auto;
+      flex: 1;
+    }}
+
+    .code-block {{
+      background: #030712;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 12px;
+      padding: 1.25rem;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.82rem;
+      color: #7dd3fc;
+      white-space: pre;
+      overflow-x: auto;
+      line-height: 1.5;
+    }}
+
+    .toast {{
+      position: fixed;
+      top: 2rem;
+      right: 2rem;
+      z-index: 3000;
+      background: #10b981;
+      color: #fff;
+      padding: 0.9rem 1.5rem;
+      border-radius: 12px;
+      font-weight: 700;
+      box-shadow: 0 10px 25px rgba(16, 185, 129, 0.4);
+      display: none;
+      animation: fadeIn 0.3s;
+    }}
+
+    @keyframes fadeIn {{
+      from {{ opacity: 0; transform: translateY(-10px); }}
+      to {{ opacity: 1; transform: translateY(0); }}
+    }}
+
     .footer {{
       margin-top: 3.5rem;
+      padding-bottom: 5rem;
       text-align: center;
       color: var(--text-muted);
       font-size: 0.85rem;
@@ -687,6 +1042,8 @@ def generate_html(s, duplicates, html_path):
   </style>
 </head>
 <body>
+  <div class="toast" id="toast">✓ Komutlar panoya kopyalandı!</div>
+
   <div class="container">
     <header>
       <div class="header-left">
@@ -742,6 +1099,27 @@ def generate_html(s, duplicates, html_path):
       </div>
     </div>
 
+    <!-- AKILLI TOPLU SEÇİM ARAÇ ÇUBUĞU -->
+    <div class="batch-toolbar">
+      <div class="batch-title">
+        <span>⚡</span> Akıllı Silme Seçimi:
+      </div>
+      <div class="batch-btn-group">
+        <button class="batch-btn primary" onclick="autoSelectKeepFirst()" title="Her gruptaki ilk dosyayı saklar, geri kalan mükerrer kopyaları silmek üzere işaretler">
+          ✨ İlkini Tut, Kalanları Seç (Önerilen)
+        </button>
+        <button class="batch-btn" onclick="autoSelectKeepNewest()" title="Her grupta en son düzenlenen dosyayı saklar, eski tarihli kopyaları siler">
+          🕒 En Yeniyi Tut, Eskileri Seç
+        </button>
+        <button class="batch-btn" onclick="autoSelectKeepOldest()" title="En eski orijinal dosyayı saklar, sonradan kopyalananları seçer">
+          📁 En Eskiyi Tut, Yenileri Seç
+        </button>
+        <button class="batch-btn" onclick="clearAllSelections()" title="İşaretlenen tüm dosyaları sıfırlar">
+          ❌ Seçimleri Temizle
+        </button>
+      </div>
+    </div>
+
     <!-- KONTROLLER -->
     <div class="controls">
       <div class="search-box">
@@ -761,7 +1139,71 @@ def generate_html(s, duplicates, html_path):
     <div class="groups-list" id="groupsList"></div>
 
     <div class="footer">
-      <p>Bu rapor Antigravity tarafından SHA-256 hash doğrulaması ile üretilmiştir.</p>
+      <p>Bu rapor Arşiv 360 tarafından SHA-256 hash doğrulaması ile üretilmiştir.</p>
+    </div>
+  </div>
+
+  <!-- SABİT ALT KOMUT BETİĞİ OLUŞTURUCU ÇUBUĞU -->
+  <div class="sticky-script-bar" id="scriptBar">
+    <div class="bar-summary">
+      <div class="bar-stat">
+        <span class="bar-stat-lbl">Silinecek Kopya</span>
+        <span class="bar-stat-val red" id="selCount">0 dosya</span>
+      </div>
+      <div class="bar-stat">
+        <span class="bar-stat-lbl">Açılacak Alan</span>
+        <span class="bar-stat-val green" id="selSize">0 B</span>
+      </div>
+      <label class="safe-mode-wrap" title="İşaretli dosyaları kalıcı olarak silmek yerine diskin kökündeki _SILINECEK_KOPYALAR klasörüne taşır.">
+        <input type="checkbox" id="safeModeChbox" checked onchange="updateScriptStats()">
+        <span>🛡️ Güvenli Mod (_SILINECEK_KOPYALAR klasörüne taşı)</span>
+      </label>
+    </div>
+
+    <!-- PLATFORM SEÇİMİ -->
+    <div class="platform-selector">
+      <button class="plat-tab active" data-plat="powershell" onclick="setPlatform('powershell')">
+        <span>🟦 PowerShell (.ps1)</span>
+      </button>
+      <button class="plat-tab" data-plat="cmd" onclick="setPlatform('cmd')">
+        <span>⬛ Windows CMD (.bat)</span>
+      </button>
+      <button class="plat-tab" data-plat="bash" onclick="setPlatform('bash')">
+        <span>🍏 macOS / Linux (.sh)</span>
+      </button>
+    </div>
+
+    <div class="bar-actions">
+      <button class="btn-act btn-preview" onclick="openPreviewModal()">
+        👁️ Önizle
+      </button>
+      <button class="btn-act btn-copy-all" onclick="copyScriptToClipboard()">
+        📋 Komutları Kopyala
+      </button>
+      <button class="btn-act btn-download" onclick="downloadScript()">
+        💾 Betiği İndir
+      </button>
+    </div>
+  </div>
+
+  <!-- MODAL: SCRIPT PREVIEW -->
+  <div class="modal-overlay" id="previewModal">
+    <div class="modal-box">
+      <div class="modal-head">
+        <h3 id="modalTitle">PowerShell Temizleme Betiği Önizleme</h3>
+        <button class="modal-close" onclick="closePreviewModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p style="font-size:0.85rem; color:#94a3b8; margin-bottom:1rem;">
+          Aşağıdaki komutları terminalinize kopyalayıp çalıştırabilir veya doğrudan dosya olarak indirebilirsiniz:
+        </p>
+        <div class="code-block" id="modalCode"></div>
+      </div>
+      <div class="modal-head" style="border-top:1px solid var(--card-border); border-bottom:none; justify-content:flex-end; gap:0.5rem;">
+        <button class="btn-act btn-preview" onclick="closePreviewModal()">Kapat</button>
+        <button class="btn-act btn-copy-all" onclick="copyScriptToClipboard()">📋 Kopyala</button>
+        <button class="btn-act btn-download" onclick="downloadScript()">💾 İndir</button>
+      </div>
     </div>
   </div>
 
@@ -769,6 +1211,18 @@ def generate_html(s, duplicates, html_path):
     const duplicateData = {dups_json};
     let currentFilter = 'all';
     let searchQuery = '';
+    let currentPlatform = 'powershell';
+
+    // Set of selected file paths for deletion
+    const selectedPaths = new Set();
+
+    function formatBytes(bytes) {{
+      if (!bytes || bytes === 0) return '0 B';
+      const k = 1024;
+      const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return (bytes / Math.pow(k, i)).toFixed(2) + ' ' + sizes[i];
+    }}
 
     function renderList() {{
       const container = document.getElementById('groupsList');
@@ -797,23 +1251,43 @@ def generate_html(s, duplicates, html_path):
       filtered.forEach((group, idx) => {{
         const card = document.createElement('div');
         card.className = 'group-card';
+        card.id = 'group-' + group.group_id;
 
         const crossBadge = group.is_cross_drive 
           ? '<span class="badge badge-cross">Çapraz Disk (D ↔ E)</span>'
           : '<span class="badge badge-single">Disk: ' + group.drives.join(', ') + '</span>';
 
-        const fileRows = group.files.map(f => {{
+        // Check how many in this group are selected
+        const selCountInGroup = group.files.filter(f => selectedPaths.has(f.path)).length;
+        const allSelected = selCountInGroup === group.files.length;
+
+        const fileRows = group.files.map((f, fIdx) => {{
           const driveClass = f.drive === 'D:' ? 'drive-d' : 'drive-e';
+          const isSelected = selectedPaths.has(f.path);
+          const rowClass = isSelected ? 'file-row is-selected' : 'file-row';
+          const statusHtml = isSelected
+            ? '<span class="status-badge status-del">Silinecek</span>'
+            : '<span class="status-badge status-keep">Saklanacak</span>';
+
           return `
-            <div class="file-row">
+            <div class="${{rowClass}}" id="row-${{idx}}-${{fIdx}}">
+              <label class="file-chk-label">
+                <input type="checkbox" class="file-chk" ${{isSelected ? 'checked' : ''}} 
+                  onchange="toggleFileSelection('${{escapeJs(f.path)}}', this.checked)">
+                ${{statusHtml}}
+              </label>
               <div class="file-path">
                 <span class="drive-tag ${{driveClass}}">${{f.drive}}</span>${{escapeHtml(f.path)}}
               </div>
               <div class="file-time">${{f.modified}}</div>
-              <button class="btn-copy" onclick="navigator.clipboard.writeText('${{escapeJs(f.path)}}'); alert('Dosya yolu kopyalandı!')">Yolu Kopyala</button>
+              <button class="btn-copy" onclick="navigator.clipboard.writeText('${{escapeJs(f.path)}}'); showToast('Dosya yolu kopyalandı!')">Yolu Kopyala</button>
             </div>
           `;
         }}).join('');
+
+        const warningBanner = allSelected
+          ? '<span style="font-size:0.75rem; color:#f87171; font-weight:700; background:rgba(239,68,68,0.15); padding:0.2rem 0.5rem; border-radius:6px; border:1px solid rgba(239,68,68,0.3);">⚠️ DİKKAT: Gruptaki tüm kopyalar seçili!</span>'
+          : '';
 
         card.innerHTML = `
           <div class="group-header">
@@ -821,6 +1295,7 @@ def generate_html(s, duplicates, html_path):
               <span>${{idx + 1}}. ${{escapeHtml(group.files[0].filename)}}</span>
               ${{crossBadge}}
               <span class="badge badge-wasted">-${{group.wasted_formatted}} israf</span>
+              ${{warningBanner}}
             </div>
             <div class="group-meta">
               <span>Tekil: <strong>${{group.size_formatted}}</strong></span>
@@ -834,6 +1309,293 @@ def generate_html(s, duplicates, html_path):
         `;
         container.appendChild(card);
       }});
+
+      updateScriptStats();
+    }}
+
+    function toggleFileSelection(path, isChecked) {{
+      if (isChecked) {{
+        selectedPaths.add(path);
+      }} else {{
+        selectedPaths.delete(path);
+      }}
+      renderList();
+    }}
+
+    function autoSelectKeepFirst() {{
+      selectedPaths.clear();
+      duplicateData.forEach(g => {{
+        // Keep file 0, select files 1..N
+        for (let i = 1; i < g.files.length; i++) {{
+          selectedPaths.add(g.files[i].path);
+        }}
+      }});
+      renderList();
+      showToast('Her gruptan 1 orijinal saklandı, kalan ' + selectedPaths.size + ' kopya seçildi!');
+    }}
+
+    function autoSelectKeepNewest() {{
+      selectedPaths.clear();
+      duplicateData.forEach(g => {{
+        // Sort files descending by modified date
+        const sorted = [...g.files].sort((a, b) => (b.modified || '').localeCompare(a.modified || ''));
+        // Keep sorted[0] (newest), delete sorted[1..N]
+        for (let i = 1; i < sorted.length; i++) {{
+          selectedPaths.add(sorted[i].path);
+        }}
+      }});
+      renderList();
+      showToast('En yeni kopyalar saklandı, eski kopyalar seçildi!');
+    }}
+
+    function autoSelectKeepOldest() {{
+      selectedPaths.clear();
+      duplicateData.forEach(g => {{
+        const sorted = [...g.files].sort((a, b) => (a.modified || '').localeCompare(b.modified || ''));
+        for (let i = 1; i < sorted.length; i++) {{
+          selectedPaths.add(sorted[i].path);
+        }}
+      }});
+      renderList();
+      showToast('En eski kopyalar saklandı, yeni kopyalar seçildi!');
+    }}
+
+    function clearAllSelections() {{
+      selectedPaths.clear();
+      renderList();
+      showToast('Tüm seçimler temizlendi.');
+    }}
+
+    function calculateSelectedSize() {{
+      let total = 0;
+      duplicateData.forEach(g => {{
+        g.files.forEach(f => {{
+          if (selectedPaths.has(f.path)) {{
+            total += g.size_bytes;
+          }}
+        }});
+      }});
+      return total;
+    }}
+
+    function updateScriptStats() {{
+      const count = selectedPaths.size;
+      const sizeBytes = calculateSelectedSize();
+
+      document.getElementById('selCount').innerText = count + ' dosya';
+      document.getElementById('selSize').innerText = formatBytes(sizeBytes);
+    }}
+
+    function setPlatform(plat) {{
+      currentPlatform = plat;
+      document.querySelectorAll('.plat-tab').forEach(t => {{
+        t.classList.toggle('active', t.dataset.plat === plat);
+      }});
+      if (document.getElementById('previewModal').classList.contains('open')) {{
+        openPreviewModal();
+      }}
+    }}
+
+    function generateScriptText() {{
+      const paths = Array.from(selectedPaths);
+      const isSafe = document.getElementById('safeModeChbox').checked;
+      const totalSize = formatBytes(calculateSelectedSize());
+      const now = new Date().toLocaleString('tr-TR');
+
+      if (paths.length === 0) {{
+        return '# Henuz silinecek dosya secilmedi.\\n# Lutfen yukaridaki dosyalardan secin veya \"Ilkini Tut, Kalanlari Sec\" butonuna tiklayin.';
+      }}
+
+      if (currentPlatform === 'powershell') {{
+        if (isSafe) {{
+          return `# ========================================================\\n` +
+                 `# Arşiv 360 - Güvenli Kopya Taşıma Betiği (PowerShell)\\n` +
+                 `# Tarih: ${{now}}\\n` +
+                 `# Taşınacak Dosya: ${{paths.length}} adet (${{totalSize}})\\n` +
+                 `# ========================================================\\n` +
+                 `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8\\n` +
+                 `$ErrorActionPreference = \"Continue\"\\n\\n` +
+                 `$targetRoot = \"_SILINECEK_KOPYALAR\"\\n` +
+                 `Write-Host \"Kopya dosyalar güvenli karantinaya taşınıyor...\" -ForegroundColor Cyan\\n\\n` +
+                 `$files = @(\\n` +
+                 paths.map(p => `    \"${{p.replace(/`/g, '``').replace(/\\$/g, '`$')}}\"`).join(',\\n') +
+                 `\\n)\\n\\n` +
+                 `$success = 0; $fail = 0\\n` +
+                 `foreach ($f in $files) {{\\n` +
+                 `    if (Test-Path -LiteralPath $f) {{\\n` +
+                 `        try {{\\n` +
+                 `            $drive = (Get-Item -LiteralPath $f).PSDrive.Name + \":\\\\\"\\n` +
+                 `            $destFolder = Join-Path $drive $targetRoot\\n` +
+                 `            if (-not (Test-Path -LiteralPath $destFolder)) {{ New-Item -ItemType Directory -Path $destFolder -Force | Out-Null }}\\n` +
+                 `            Move-Item -LiteralPath $f -Destination $destFolder -Force -ErrorAction Stop\\n` +
+                 `            Write-Host \"  [✓ Taşındı] $f -> $destFolder\" -ForegroundColor Green\\n` +
+                 `            $success++\\n` +
+                 `        }} catch {{\\n` +
+                 `            Write-Host \"  [X Hata] $f ($($_.Exception.Message))\" -ForegroundColor Red\\n` +
+                 `            $fail++\\n` +
+                 `        }}\\n` +
+                 `    }} else {{\\n` +
+                 `        Write-Host \"  [-] Bulunamadı: $f\" -ForegroundColor Yellow\\n` +
+                 `    }}\\n` +
+                 `}}\\n\\n` +
+                 `Write-Host \"\\nİşlem Tamamlandı! Başarılı: $success | Hata: $fail\" -ForegroundColor Cyan\\n` +
+                 `Write-Host \"Dosyalarınız disk kökündeki '_SILINECEK_KOPYALAR' klasörüne taşındı.\" -ForegroundColor Yellow\\n` +
+                 `pause\\n`;
+        }} else {{
+          return `# ========================================================\\n` +
+                 `# Arşiv 360 - Kalıcı Kopya Silme Betiği (PowerShell)\\n` +
+                 `# Tarih: ${{now}}\\n` +
+                 `# Silinecek Dosya: ${{paths.length}} adet (${{totalSize}})\\n` +
+                 `# ========================================================\\n` +
+                 `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8\\n` +
+                 `$ErrorActionPreference = \"Continue\"\\n\\n` +
+                 `$confirm = Read-Host \"${{paths.length}} adet kopya dosya KALICI OLARAK silinecektir. Devam etmek için 'EVET' yazın\"\\n` +
+                 `if ($confirm -ne 'EVET') {{ Write-Host 'İşlem iptal edildi.' -ForegroundColor Yellow; exit }}\\n\\n` +
+                 `$files = @(\\n` +
+                 paths.map(p => `    \"${{p.replace(/`/g, '``').replace(/\\$/g, '`$')}}\"`).join(',\\n') +
+                 `\\n)\\n\\n` +
+                 `$deleted = 0\\n` +
+                 `foreach ($f in $files) {{\\n` +
+                 `    if (Test-Path -LiteralPath $f) {{\\n` +
+                 `        try {{\\n` +
+                 `            Remove-Item -LiteralPath $f -Force -ErrorAction Stop\\n` +
+                 `            Write-Host \"  [✓ Silindi] $f\" -ForegroundColor Green\\n` +
+                 `            $deleted++\\n` +
+                 `        }} catch {{\\n` +
+                 `            Write-Host \"  [X Hata] $f ($($_.Exception.Message))\" -ForegroundColor Red\\n` +
+                 `        }}\\n` +
+                 `    }}\\n` +
+                 `}}\\n\\n` +
+                 `Write-Host \"\\nToplam Silinen: $deleted dosya.\" -ForegroundColor Cyan\\npause\\n`;
+        }}
+      }}
+
+      if (currentPlatform === 'cmd') {{
+        if (isSafe) {{
+          const lines = [
+            `@echo off`,
+            `chcp 65001 > nul`,
+            `title Arşiv 360 - Kopya Taşıma`,
+            `echo ========================================================`,
+            `echo Arşiv 360 - Kopya Dosyaları _SILINECEKLER Klasörüne Taşıma`,
+            `echo Taşınacak Dosya: ${{paths.length}} adet (${{totalSize}})`,
+            `echo ========================================================`,
+            `echo.`,
+            `pause`
+          ];
+          paths.forEach(p => {{
+            const drv = p.substring(0, 2);
+            lines.push(`if not exist \"${{drv}}\\_SILINECEK_KOPYALAR\" mkdir \"${{drv}}\\_SILINECEK_KOPYALAR\" >nul 2>&1`);
+            lines.push(`move /y \"${{p}}\" \"${{drv}}\\_SILINECEK_KOPYALAR\\\" >nul 2>&1 && echo [OK] ${{p}} || echo [HATA] ${{p}}`);
+          }});
+          lines.push(`echo.`, `echo İşlem tamamlandı. Dosyalar _SILINECEK_KOPYALAR klasörüne taşındı.`, `pause`);
+          return lines.join('\\n');
+        }} else {{
+          const lines = [
+            `@echo off`,
+            `chcp 65001 > nul`,
+            `title Arşiv 360 - Kalıcı Kopya Silme`,
+            `echo ========================================================`,
+            `echo DİKKAT: ${{paths.length}} adet dosya kalıcı olarak silinecek!`,
+            `echo Kurtarılacak Alan: ${{totalSize}}`,
+            `echo ========================================================`,
+            `set /p onay=\"Onaylıyor musunuz? (E/H): \"`,
+            `if /i not \"%onay%\"==\"E\" exit /b`,
+            `echo.`
+          ];
+          paths.forEach(p => {{
+            lines.push(`del /f /q \"${{p}}\" 2>nul && echo [SILINDI] ${{p}} || echo [BULUNAMADI/HATA] ${{p}}`);
+          }});
+          lines.push(`echo.`, `echo Tamamlandı.`, `pause`);
+          return lines.join('\\n');
+        }}
+      }}
+
+      if (currentPlatform === 'bash') {{
+        const lines = [
+          `#!/usr/bin/env bash`,
+          `# ========================================================`,
+          `# Arşiv 360 - Kopya Dosya Temizleme Betiği (macOS & Linux)`,
+          `# Dosya Sayısı: ${{paths.length}} adet (${{totalSize}})`,
+          `# ========================================================`,
+          `set -euo pipefail`,
+          `echo \"Toplam ${{paths.length}} dosya işlenecek...\"`
+        ];
+        if (isSafe) {{
+          lines.push(
+            `mkdir -p \"./_SILINECEK_KOPYALAR\"`,
+            `echo \"Dosyalar ./_SILINECEK_KOPYALAR klasörüne taşınıyor...\"`
+          );
+          paths.forEach(p => {{
+            // Convert Windows path to slash if needed
+            const posixPath = p.replace(/\\\\/g, '/');
+            lines.push(`mv -f \"${{posixPath}}\" \"./_SILINECEK_KOPYALAR/\" 2>/dev/null || true`);
+          }});
+        }} else {{
+          lines.push(
+            `read -p \"Dosyaları kalıcı olarak silmek istiyor musunuz? (e/h): \" onay`,
+            `if [[ \"$onay\" != \"e\" && \"$onay\" != \"E\" ]]; then echo \"İptal edildi.\"; exit 0; fi`
+          );
+          paths.forEach(p => {{
+            const posixPath = p.replace(/\\\\/g, '/');
+            lines.push(`rm -f \"${{posixPath}}\"`);
+          }});
+        }}
+        lines.push(`echo \"İşlem tamamlandı!\"`);
+        return lines.join('\\n');
+      }}
+
+      return '';
+    }}
+
+    function copyScriptToClipboard() {{
+      const text = generateScriptText();
+      navigator.clipboard.writeText(text).then(() => {{
+        showToast('✓ ' + currentPlatform.toUpperCase() + ' komutları panoya kopyalandı!');
+      }});
+    }}
+
+    function downloadScript() {{
+      const text = generateScriptText();
+      const ext = currentPlatform === 'powershell' ? 'ps1' : currentPlatform === 'cmd' ? 'bat' : 'sh';
+      const filename = `arsiv360_kopya_temizle_${{Date.now()}}.${{ext}}`;
+      
+      const blob = new Blob([text], {{ type: 'text/plain;charset=utf-8' }});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      showToast('✓ ' + filename + ' dosyası indirildi!');
+    }}
+
+    function openPreviewModal() {{
+      const code = generateScriptText();
+      const titles = {{
+        powershell: 'Windows PowerShell Betiği (.ps1)',
+        cmd: 'Windows CMD / Batch Betiği (.bat)',
+        bash: 'macOS & Linux Bash Betiği (.sh)'
+      }};
+      document.getElementById('modalTitle').innerText = titles[currentPlatform] || 'Betiği Önizle';
+      document.getElementById('modalCode').innerText = code;
+      document.getElementById('previewModal').classList.add('open');
+    }}
+
+    function closePreviewModal() {{
+      document.getElementById('previewModal').classList.remove('open');
+    }}
+
+    function showToast(msg) {{
+      const t = document.getElementById('toast');
+      t.innerText = msg;
+      t.style.display = 'block';
+      setTimeout(() => {{
+        t.style.display = 'none';
+      }}, 3500);
     }}
 
     function escapeHtml(str) {{
@@ -858,6 +1620,7 @@ def generate_html(s, duplicates, html_path):
       renderList();
     }});
 
+    // Initial render
     renderList();
   </script>
 </body>
@@ -865,6 +1628,7 @@ def generate_html(s, duplicates, html_path):
 """
     with open(html_path, "w", encoding="utf-8") as f:
         f.write(html)
+
 
 if __name__ == "__main__":
     main()

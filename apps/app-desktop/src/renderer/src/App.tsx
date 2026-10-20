@@ -6,11 +6,15 @@ import {
   ArrowUpDown,
   BarChart2,
   Calendar,
+  Check,
   CheckCircle2,
+  CheckSquare,
   ChevronRight,
   Code,
+  Copy,
   CornerDownLeft,
   Database,
+  Download,
   Edit3,
   ExternalLink,
   Eye,
@@ -33,6 +37,7 @@ import {
   RefreshCw,
   Search,
   Settings2,
+  Shield,
   ShieldCheck,
   SlidersHorizontal,
   Sparkles,
@@ -40,6 +45,7 @@ import {
   Sun,
   Tag,
   Terminal,
+  Trash2,
   Video,
   X,
 } from "lucide-react";
@@ -238,11 +244,29 @@ export default function App() {
   const [terminalLogs, setTerminalLogs] = useState<string[]>([]);
   const terminalEndRef = useRef<HTMLDivElement>(null);
 
-  // Reports State
+  // Reports State & Duplicate Script Generator
   const [reports, setReports] = useState<any>(null);
+  const [loadingReports, setLoadingReports] = useState<boolean>(false);
+  const [selectedDuplicatePaths, setSelectedDuplicatePaths] = useState<string[]>([]);
+  const [duplicatePlatform, setDuplicatePlatform] = useState<"powershell" | "cmd" | "bash">("powershell");
+  const [isDuplicateSafeMode, setIsDuplicateSafeMode] = useState<boolean>(true);
+  const [copiedScript, setCopiedScript] = useState<boolean>(false);
+  const [showScriptPreview, setShowScriptPreview] = useState<boolean>(false);
 
-  // Fetch detected system drives on mount
+  const loadReports = async () => {
+    setLoadingReports(true);
+    try {
+      const data = await api.getMigrationReports();
+      if (data) {
+        setReports(data);
+      }
+    } catch {}
+    setLoadingReports(false);
+  };
+
+  // Fetch detected system drives and initial reports on mount
   useEffect(() => {
+    loadReports();
     api.getSystemDrives()
       .then((drives) => {
         if (drives && drives.length > 0) {
@@ -251,6 +275,270 @@ export default function App() {
       })
       .catch(() => {});
   }, []);
+
+  const duplicateList = useMemo(() => {
+    return (reports?.duplicate?.duplicates as any[]) || [];
+  }, [reports]);
+
+  const selectedSizeFormatted = useMemo(() => {
+    let bytes = 0;
+    const pathSet = new Set(selectedDuplicatePaths);
+    duplicateList.forEach((group: any) => {
+      (group.files || []).forEach((f: any) => {
+        if (pathSet.has(f.path)) {
+          bytes += group.size_bytes || 0;
+        }
+      });
+    });
+    return formatBytes(bytes);
+  }, [duplicateList, selectedDuplicatePaths]);
+
+  const toggleDuplicatePath = (path: string) => {
+    setSelectedDuplicatePaths((prev) =>
+      prev.includes(path) ? prev.filter((p) => p !== path) : [...prev, path]
+    );
+  };
+
+  const autoSelectKeepFirst = () => {
+    const toSelect: string[] = [];
+    duplicateList.forEach((group: any) => {
+      const files = group.files || [];
+      for (let i = 1; i < files.length; i++) {
+        toSelect.push(files[i].path);
+      }
+    });
+    setSelectedDuplicatePaths(toSelect);
+  };
+
+  const autoSelectKeepNewest = () => {
+    const toSelect: string[] = [];
+    duplicateList.forEach((group: any) => {
+      const files = [...(group.files || [])].sort((a: any, b: any) =>
+        (b.modified || "").localeCompare(a.modified || "")
+      );
+      for (let i = 1; i < files.length; i++) {
+        toSelect.push(files[i].path);
+      }
+    });
+    setSelectedDuplicatePaths(toSelect);
+  };
+
+  const autoSelectKeepOldest = () => {
+    const toSelect: string[] = [];
+    duplicateList.forEach((group: any) => {
+      const files = [...(group.files || [])].sort((a: any, b: any) =>
+        (a.modified || "").localeCompare(b.modified || "")
+      );
+      for (let i = 1; i < files.length; i++) {
+        toSelect.push(files[i].path);
+      }
+    });
+    setSelectedDuplicatePaths(toSelect);
+  };
+
+  const clearDuplicateSelections = () => {
+    setSelectedDuplicatePaths([]);
+  };
+
+  const generateScriptContent = (
+    platform: "powershell" | "cmd" | "bash",
+    paths: string[],
+    isSafe: boolean
+  ): string => {
+    if (paths.length === 0) {
+      return "# Henüz silinecek dosya seçilmedi.\n# Lütfen listeden dosyaları işaretleyin veya 'İlkini Tut, Kalanları Seç' butonuna tıklayın.";
+    }
+
+    const now = new Date().toLocaleString("tr-TR");
+
+    if (platform === "powershell") {
+      if (isSafe) {
+        return (
+          `# ========================================================\n` +
+          `# Arşiv 360 - Güvenli Kopya Taşıma Betiği (PowerShell)\n` +
+          `# Tarih: ${now}\n` +
+          `# Taşınacak Dosya: ${paths.length} adet (${selectedSizeFormatted})\n` +
+          `# ========================================================\n` +
+          `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8\n` +
+          `$ErrorActionPreference = "Continue"\n\n` +
+          `$targetRoot = "_SILINECEK_KOPYALAR"\n` +
+          `Write-Host "Kopya dosyalar güvenli karantinaya taşınıyor..." -ForegroundColor Cyan\n\n` +
+          `$files = @(\n` +
+          paths
+            .map((p) => `    "${p.replace(/`/g, "``").replace(/\$/g, "`$")}"`)
+            .join(",\n") +
+          `\n)\n\n` +
+          `$success = 0; $fail = 0\n` +
+          `foreach ($f in $files) {\n` +
+          `    if (Test-Path -LiteralPath $f) {\n` +
+          `        try {\n` +
+          `            $drive = (Get-Item -LiteralPath $f).PSDrive.Name + ":\\\\"\n` +
+          `            $destFolder = Join-Path $drive $targetRoot\n` +
+          `            if (-not (Test-Path -LiteralPath $destFolder)) { New-Item -ItemType Directory -Path $destFolder -Force | Out-Null }\n` +
+          `            Move-Item -LiteralPath $f -Destination $destFolder -Force -ErrorAction Stop\n` +
+          `            Write-Host "  [✓ Taşındı] $f -> $destFolder" -ForegroundColor Green\n` +
+          `            $success++\n` +
+          `        } catch {\n` +
+          `            Write-Host "  [X Hata] $f ($($_.Exception.Message))" -ForegroundColor Red\n` +
+          `            $fail++\n` +
+          `        }\n` +
+          `    } else {\n` +
+          `        Write-Host "  [-] Bulunamadı: $f" -ForegroundColor Yellow\n` +
+          `    }\n` +
+          `}\n\n` +
+          `Write-Host "\nİşlem Tamamlandı! Başarılı: $success | Hata: $fail" -ForegroundColor Cyan\n` +
+          `Write-Host "Dosyalarınız disk kökündeki '_SILINECEK_KOPYALAR' klasörüne taşındı." -ForegroundColor Yellow\n` +
+          `pause\n`
+        );
+      } else {
+        return (
+          `# ========================================================\n` +
+          `# Arşiv 360 - Kalıcı Kopya Silme Betiği (PowerShell)\n` +
+          `# Tarih: ${now}\n` +
+          `# Silinecek Dosya: ${paths.length} adet (${selectedSizeFormatted})\n` +
+          `# ========================================================\n` +
+          `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8\n` +
+          `$ErrorActionPreference = "Continue"\n\n` +
+          `$confirm = Read-Host "${paths.length} adet kopya dosya KALICI OLARAK silinecektir. Devam etmek için 'EVET' yazın"\n` +
+          `if ($confirm -ne 'EVET') { Write-Host 'İşlem iptal edildi.' -ForegroundColor Yellow; exit }\n\n` +
+          `$files = @(\n` +
+          paths
+            .map((p) => `    "${p.replace(/`/g, "``").replace(/\$/g, "`$")}"`)
+            .join(",\n") +
+          `\n)\n\n` +
+          `$deleted = 0\n` +
+          `foreach ($f in $files) {\n` +
+          `    if (Test-Path -LiteralPath $f) {\n` +
+          `        try {\n` +
+          `            Remove-Item -LiteralPath $f -Force -ErrorAction Stop\n` +
+          `            Write-Host "  [✓ Silindi] $f" -ForegroundColor Green\n` +
+          `            $deleted++\n` +
+          `        } catch {\n` +
+          `            Write-Host "  [X Hata] $f ($($_.Exception.Message))" -ForegroundColor Red\n` +
+          `        }\n` +
+          `    }\n` +
+          `}\n\n` +
+          `Write-Host "\nToplam Silinen: $deleted dosya." -ForegroundColor Cyan\npause\n`
+        );
+      }
+    }
+
+    if (platform === "cmd") {
+      if (isSafe) {
+        const lines = [
+          `@echo off`,
+          `chcp 65001 > nul`,
+          `title Arşiv 360 - Kopya Taşıma`,
+          `echo ========================================================`,
+          `echo Arşiv 360 - Kopya Dosyaları _SILINECEK_KOPYALAR Klasörüne Taşıma`,
+          `echo Taşınacak Dosya: ${paths.length} adet (${selectedSizeFormatted})`,
+          `echo ========================================================`,
+          `echo.`,
+          `pause`,
+        ];
+        paths.forEach((p) => {
+          const drv = p.substring(0, 2);
+          lines.push(`if not exist "${drv}\\_SILINECEK_KOPYALAR" mkdir "${drv}\\_SILINECEK_KOPYALAR" >nul 2>&1`);
+          lines.push(`move /y "${p}" "${drv}\\_SILINECEK_KOPYALAR\\" >nul 2>&1 && echo [OK] ${p} || echo [HATA] ${p}`);
+        });
+        lines.push(`echo.`, `echo İşlem tamamlandı. Dosyalar _SILINECEK_KOPYALAR klasörüne taşındı.`, `pause`);
+        return lines.join("\n");
+      } else {
+        const lines = [
+          `@echo off`,
+          `chcp 65001 > nul`,
+          `title Arşiv 360 - Kalıcı Kopya Silme`,
+          `echo ========================================================`,
+          `echo DİKKAT: ${paths.length} adet dosya kalıcı olarak silinecek!`,
+          `echo Kurtarılacak Alan: ${selectedSizeFormatted}`,
+          `echo ========================================================`,
+          `set /p onay="Onaylıyor musunuz? (E/H): "`,
+          `if /i not "%onay%"=="E" exit /b`,
+          `echo.`,
+        ];
+        paths.forEach((p) => {
+          lines.push(`del /f /q "${p}" 2>nul && echo [SILINDI] ${p} || echo [BULUNAMADI/HATA] ${p}`);
+        });
+        lines.push(`echo.`, `echo Tamamlandı.`, `pause`);
+        return lines.join("\n");
+      }
+    }
+
+    if (platform === "bash") {
+      const lines = [
+        `#!/usr/bin/env bash`,
+        `# ========================================================`,
+        `# Arşiv 360 - Kopya Dosya Temizleme Betiği (macOS & Linux)`,
+        `# Dosya Sayısı: ${paths.length} adet (${selectedSizeFormatted})`,
+        `# ========================================================`,
+        `set -euo pipefail`,
+        `echo "Toplam ${paths.length} dosya işlenecek..."`,
+      ];
+      if (isSafe) {
+        lines.push(
+          `mkdir -p "./_SILINECEK_KOPYALAR"`,
+          `echo "Dosyalar ./_SILINECEK_KOPYALAR klasörüne taşınıyor..."`
+        );
+        paths.forEach((p) => {
+          const posix = p.replace(/\\/g, "/");
+          lines.push(`mv -f "${posix}" "./_SILINECEK_KOPYALAR/" 2>/dev/null || true`);
+        });
+      } else {
+        lines.push(
+          `read -p "Dosyaları kalıcı olarak silmek istiyor musunuz? (e/h): " onay`,
+          `if [[ "$onay" != "e" && "$onay" != "E" ]]; then echo "İptal edildi."; exit 0; fi`
+        );
+        paths.forEach((p) => {
+          const posix = p.replace(/\\/g, "/");
+          lines.push(`rm -f "${posix}"`);
+        });
+      }
+      lines.push(`echo "İşlem tamamlandı!"`);
+      return lines.join("\n");
+    }
+
+    return "";
+  };
+
+  const handleCopyScript = async () => {
+    const text = generateScriptContent(
+      duplicatePlatform,
+      selectedDuplicatePaths,
+      isDuplicateSafeMode
+    );
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedScript(true);
+      setTimeout(() => setCopiedScript(false), 2500);
+    } catch {
+      alert("Panoya kopyalanamadı.");
+    }
+  };
+
+  const handleDownloadScript = () => {
+    const text = generateScriptContent(
+      duplicatePlatform,
+      selectedDuplicatePaths,
+      isDuplicateSafeMode
+    );
+    const ext =
+      duplicatePlatform === "powershell"
+        ? "ps1"
+        : duplicatePlatform === "cmd"
+        ? "bat"
+        : "sh";
+    const filename = `kopya_temizle_${duplicatePlatform}.${ext}`;
+
+    const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
 
   // Navigate to directory
   const changeDirectory = (newPath: string) => {
@@ -2016,7 +2304,304 @@ export default function App() {
               </div>
             </div>
 
-            {/* Dynamic Semantic Keywords Cloud */}
+            {/* Tab 3: Interactive Duplicate File Cleaner & Multi-Platform Script Generator */}
+            <div className="p-6 rounded-2xl border border-slate-200 dark:border-white/10 bg-white dark:bg-[#121929] shadow-lg space-y-5">
+              <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-slate-100 dark:border-white/10">
+                <div>
+                  <h3 className="font-bold text-base text-slate-900 dark:text-white flex items-center gap-2">
+                    <Terminal className="w-5 h-5 text-indigo-500" />
+                    Mükerrer Dosya Ayıklama & Otomatik Komut Betiği Oluşturucu
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-gray-400 mt-1">
+                    Silmek istediğiniz kopyaları işaretleyin; PowerShell, CMD veya macOS/Linux için kopyala-yapıştır komut betiğinizi anında oluşturun.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="px-3 py-1 rounded-full text-xs font-semibold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                    {selectedDuplicatePaths.length} kopya seçili ({selectedSizeFormatted})
+                  </span>
+                  <button
+                    onClick={loadReports}
+                    disabled={loadingReports}
+                    className="p-2 rounded-lg border border-slate-200 dark:border-white/10 hover:bg-slate-100 dark:hover:bg-white/5 text-slate-600 dark:text-gray-300 transition"
+                    title="Raporu Yeniden Yükle"
+                  >
+                    <RefreshCw className={`w-4 h-4 ${loadingReports ? "animate-spin" : ""}`} />
+                  </button>
+                </div>
+              </div>
+
+              {/* Batch Action Toolbar */}
+              <div className="flex flex-wrap items-center justify-between gap-3 p-3 rounded-xl bg-slate-50 dark:bg-black/30 border border-slate-200 dark:border-white/5">
+                <div className="flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-gray-300">
+                  <Sparkles className="w-4 h-4 text-amber-500" />
+                  <span>Akıllı Seçim:</span>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    onClick={autoSelectKeepFirst}
+                    className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs transition"
+                    title="Her gruptaki ilk dosyayı saklar, kalanları silinecek olarak seçer"
+                  >
+                    ✨ İlkini Tut, Kalanları Seç (Önerilen)
+                  </button>
+                  <button
+                    onClick={autoSelectKeepNewest}
+                    className="px-3 py-1.5 rounded-lg text-xs font-medium bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 hover:bg-slate-100 dark:hover:bg-white/10 text-slate-700 dark:text-gray-300 transition"
+                    title="Her grupta en son düzenlenen dosyayı saklar, eskileri seçer"
+                  >
+                    🕒 En Yeniyi Tut, Eskileri Seç
+                  </button>
+                  <button
+                    onClick={autoSelectKeepOldest}
+                    className="px-3 py-1.5 rounded-lg text-xs font-medium bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 hover:bg-slate-100 dark:hover:bg-white/10 text-slate-700 dark:text-gray-300 transition"
+                    title="En eski orijinal dosyayı saklar, yenileri seçer"
+                  >
+                    📁 En Eskiyi Tut, Yenileri Seç
+                  </button>
+                  <button
+                    onClick={clearDuplicateSelections}
+                    className="px-3 py-1.5 rounded-lg text-xs font-medium bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900 text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-900/50 transition"
+                  >
+                    ❌ Temizle
+                  </button>
+                </div>
+              </div>
+
+              {/* Platform Switcher & Options Bar */}
+              <div className="flex flex-wrap items-center justify-between gap-4 p-4 rounded-xl bg-slate-100 dark:bg-black/50 border border-slate-200 dark:border-white/10">
+                <div className="flex flex-wrap items-center gap-3">
+                  {/* Platform Tabs */}
+                  <div className="flex rounded-lg p-1 bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10">
+                    <button
+                      onClick={() => setDuplicatePlatform("powershell")}
+                      className={`px-3 py-1.5 rounded-md text-xs font-bold transition flex items-center gap-1.5 ${
+                        duplicatePlatform === "powershell"
+                          ? "bg-indigo-600 text-white shadow-xs"
+                          : "text-slate-600 dark:text-gray-400 hover:text-slate-900 dark:hover:text-white"
+                      }`}
+                    >
+                      <span>🟦 PowerShell (.ps1)</span>
+                    </button>
+                    <button
+                      onClick={() => setDuplicatePlatform("cmd")}
+                      className={`px-3 py-1.5 rounded-md text-xs font-bold transition flex items-center gap-1.5 ${
+                        duplicatePlatform === "cmd"
+                          ? "bg-indigo-600 text-white shadow-xs"
+                          : "text-slate-600 dark:text-gray-400 hover:text-slate-900 dark:hover:text-white"
+                      }`}
+                    >
+                      <span>⬛ Windows CMD (.bat)</span>
+                    </button>
+                    <button
+                      onClick={() => setDuplicatePlatform("bash")}
+                      className={`px-3 py-1.5 rounded-md text-xs font-bold transition flex items-center gap-1.5 ${
+                        duplicatePlatform === "bash"
+                          ? "bg-indigo-600 text-white shadow-xs"
+                          : "text-slate-600 dark:text-gray-400 hover:text-slate-900 dark:hover:text-white"
+                      }`}
+                    >
+                      <span>🍏 macOS / Linux (.sh)</span>
+                    </button>
+                  </div>
+
+                  {/* Safe Mode Checkbox */}
+                  <label className="flex items-center gap-2 text-xs font-medium text-slate-700 dark:text-gray-300 cursor-pointer bg-white dark:bg-white/5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-white/10 select-none">
+                    <input
+                      type="checkbox"
+                      checked={isDuplicateSafeMode}
+                      onChange={(e) => setIsDuplicateSafeMode(e.target.checked)}
+                      className="w-4 h-4 rounded text-indigo-600 accent-amber-500 cursor-pointer"
+                    />
+                    <Shield className="w-3.5 h-3.5 text-amber-500" />
+                    <span>Güvenli Mod (_SILINECEK_KOPYALAR klasörüne taşı)</span>
+                  </label>
+                </div>
+
+                {/* Script Actions */}
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setShowScriptPreview((prev) => !prev)}
+                    className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-white dark:bg-white/10 border border-slate-200 dark:border-white/10 hover:bg-slate-100 dark:hover:bg-white/15 text-slate-800 dark:text-gray-200 transition flex items-center gap-1.5"
+                  >
+                    <Eye className="w-4 h-4 text-cyan-500" />
+                    <span>{showScriptPreview ? "Önizlemeyi Kapat" : "Önizle"}</span>
+                  </button>
+                  <button
+                    onClick={handleCopyScript}
+                    className="px-4 py-1.5 rounded-lg text-xs font-bold bg-cyan-600 hover:bg-cyan-500 text-white shadow-sm transition flex items-center gap-1.5"
+                  >
+                    {copiedScript ? <Check className="w-4 h-4 text-white" /> : <Copy className="w-4 h-4" />}
+                    <span>{copiedScript ? "Kopyalandı!" : "Komutları Kopyala"}</span>
+                  </button>
+                  <button
+                    onClick={handleDownloadScript}
+                    className="px-4 py-1.5 rounded-lg text-xs font-bold bg-indigo-600 hover:bg-indigo-500 text-white shadow-sm transition flex items-center gap-1.5"
+                  >
+                    <Download className="w-4 h-4" />
+                    <span>Betiği İndir</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Script Preview Box */}
+              {showScriptPreview && (
+                <div className="relative rounded-xl overflow-hidden border border-slate-800 bg-[#090d16] p-4 text-xs font-mono text-cyan-300">
+                  <div className="flex items-center justify-between pb-2 mb-2 border-b border-white/10 text-slate-400 text-[11px]">
+                    <span>Oluşturulan Komut Betiği ({duplicatePlatform.toUpperCase()})</span>
+                    <button
+                      onClick={handleCopyScript}
+                      className="px-2 py-1 rounded bg-white/10 hover:bg-white/20 text-white text-[10px] font-bold"
+                    >
+                      {copiedScript ? "✓ Kopyalandı" : "Panoya Kopyala"}
+                    </button>
+                  </div>
+                  <pre className="overflow-x-auto max-h-64 whitespace-pre leading-relaxed select-all">
+                    {generateScriptContent(
+                      duplicatePlatform,
+                      selectedDuplicatePaths,
+                      isDuplicateSafeMode
+                    )}
+                  </pre>
+                </div>
+              )}
+
+              {/* Duplicates Accordion List */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between text-xs font-bold text-slate-600 dark:text-gray-400 px-1">
+                  <span>Mükerrer Dosya Grupları ({duplicateList.length} grup tespit edildi)</span>
+                  <span>Silmek istediğiniz dosyaların solundaki kutucuğu işaretleyin</span>
+                </div>
+
+                {duplicateList.length === 0 ? (
+                  <div className="text-center py-10 px-4 rounded-xl border border-dashed border-slate-200 dark:border-white/10 bg-slate-50/50 dark:bg-white/[0.02]">
+                    <CheckCircle2 className="w-10 h-10 text-emerald-500 mx-auto mb-2 opacity-80" />
+                    <p className="font-semibold text-sm text-slate-800 dark:text-gray-200">
+                      Mükerrer dosya kaydı bulunamadı veya henüz tarama yapılmadı.
+                    </p>
+                    <p className="text-xs text-slate-500 dark:text-gray-400 mt-1 max-w-md mx-auto">
+                      "scanner.py" betiğini Python Konsolu sekmesinden çalıştırarak sürücülerinizdeki mükerrer dosyaları anında tarayabilirsiniz.
+                    </p>
+                  </div>
+                ) : (
+                  duplicateList.slice(0, 50).map((group: any, idx: number) => {
+                    const files = group.files || [];
+                    const selInGroup = files.filter((f: any) =>
+                      selectedDuplicatePaths.includes(f.path)
+                    ).length;
+                    const allInGroupSelected = selInGroup === files.length && files.length > 0;
+
+                    return (
+                      <div
+                        key={group.group_id || idx}
+                        className="rounded-xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-black/20 overflow-hidden"
+                      >
+                        {/* Group Header */}
+                        <div className="flex flex-wrap items-center justify-between gap-3 p-3 bg-white dark:bg-white/[0.03] border-b border-slate-200 dark:border-white/5">
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-xs text-slate-900 dark:text-white">
+                              {idx + 1}. {files[0]?.filename || "Dosya"}
+                            </span>
+                            <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-amber-50 dark:bg-amber-950/50 text-amber-600 dark:text-amber-400 border border-amber-300 dark:border-amber-800">
+                              -{group.wasted_formatted} israf
+                            </span>
+                            {allInGroupSelected && (
+                              <span className="text-[10px] px-2 py-0.5 rounded bg-rose-500 text-white font-bold">
+                                ⚠️ Tümü seçili (Orijinal kalmayacak!)
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-3 text-[11px] text-slate-500 dark:text-gray-400">
+                            <span>Tekil: <strong className="text-slate-800 dark:text-gray-200">{group.size_formatted}</strong></span>
+                            <span>Adet: <strong className="text-slate-800 dark:text-gray-200">{group.count}</strong></span>
+                            <span className="font-mono text-[10px] bg-slate-200 dark:bg-black/40 px-1.5 py-0.5 rounded">
+                              SHA: {group.hash?.substring(0, 10)}...
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* File Rows in Group */}
+                        <div className="p-2 space-y-1.5">
+                          {files.map((f: any, fIdx: number) => {
+                            const isSelected = selectedDuplicatePaths.includes(f.path);
+                            return (
+                              <div
+                                key={f.path || fIdx}
+                                onClick={() => toggleDuplicatePath(f.path)}
+                                className={`flex items-center justify-between gap-3 p-2 rounded-lg border text-xs cursor-pointer transition select-none ${
+                                  isSelected
+                                    ? "bg-rose-50/80 dark:bg-rose-950/30 border-rose-200 dark:border-rose-900/60"
+                                    : "bg-white dark:bg-[#121929] border-slate-200 dark:border-white/5 hover:border-slate-300 dark:hover:border-white/20"
+                                }`}
+                              >
+                                <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                                  <input
+                                    type="checkbox"
+                                    checked={isSelected}
+                                    onChange={() => {}}
+                                    className="w-4 h-4 rounded text-rose-600 accent-rose-500 cursor-pointer"
+                                  />
+                                  <span
+                                    className={`text-[10px] px-2 py-0.5 rounded font-bold uppercase tracking-wider shrink-0 ${
+                                      isSelected
+                                        ? "bg-rose-100 dark:bg-rose-900/60 text-rose-700 dark:text-rose-300"
+                                        : "bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300"
+                                    }`}
+                                  >
+                                    {isSelected ? "Silinecek" : "Saklanacak"}
+                                  </span>
+                                  <span
+                                    className={`font-mono text-[11px] truncate flex-1 ${
+                                      isSelected
+                                        ? "text-rose-700 dark:text-rose-300 line-through opacity-80"
+                                        : "text-slate-700 dark:text-gray-200"
+                                    }`}
+                                    title={f.path}
+                                  >
+                                    {f.path}
+                                  </span>
+                                </div>
+
+                                <div className="flex items-center gap-2 shrink-0">
+                                  <span className="text-[10px] text-slate-400 dark:text-gray-500 hidden sm:inline">
+                                    {f.modified}
+                                  </span>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      navigator.clipboard.writeText(f.path);
+                                    }}
+                                    className="p-1 rounded hover:bg-slate-200 dark:hover:bg-white/10 text-slate-500 dark:text-gray-400 text-[10px]"
+                                    title="Yolu Kopyala"
+                                  >
+                                    <Copy className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      api.showInFolder(f.path);
+                                    }}
+                                    className="p-1 rounded hover:bg-slate-200 dark:hover:bg-white/10 text-slate-500 dark:text-gray-400 text-[10px]"
+                                    title="Klasörde Göster"
+                                  >
+                                    <ExternalLink className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+                {duplicateList.length > 50 && (
+                  <p className="text-center text-xs text-slate-500 dark:text-gray-400 py-2">
+                    İlk 50 mükerrer dosya grubu gösteriliyor. Tüm {duplicateList.length} grubu yönetmek için "scanner.py" tarafından üretilen "duplicate_report.html" dosyasını tarayıcınızda açabilirsiniz.
+                  </p>
+                )}
+              </div>
+            </div>
             <div className="p-5 rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-[#121929] shadow-xs">
               <div className="flex items-center justify-between mb-3">
                 <h3 className="font-bold text-sm text-slate-900 dark:text-white flex items-center gap-2">
