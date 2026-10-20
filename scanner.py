@@ -12,7 +12,7 @@ for _s in (sys.stdout, sys.stderr):
         try: _s.reconfigure(encoding="utf-8", errors="replace")
         except Exception: pass
 
-TARGET_DRIVES = ["E:\\"]
+TARGET_DRIVES = [d for d in ["E:\\"] if os.path.exists(d)] or ["D:\\", "E:\\"]
 
 EXCLUDE_DIRS = {
     "$recycle.bin",
@@ -214,11 +214,12 @@ def main():
     cross_groups = [g for g in duplicates if g["is_cross_drive"]]
     only_d = [g for g in duplicates if g["drives"] == ["D:"]]
     only_e = [g for g in duplicates if g["drives"] == ["E:"]]
+    large_groups = [g for g in duplicates if g["size_bytes"] >= 10 * 1024 * 1024]
 
     summary = {
         "scan_date": time.strftime("%Y-%m-%d %H:%M:%S"),
         "elapsed_seconds": elapsed,
-        "scanned_drives": TARGET_DRIVES,
+        "scanned_drives": target_drives,
         "total_files_scanned": total_files,
         "total_bytes_scanned": total_bytes,
         "total_size_scanned_formatted": format_size(total_bytes),
@@ -231,6 +232,7 @@ def main():
         "cross_drive_wasted_formatted": format_size(sum(g["wasted_bytes"] for g in cross_groups)),
         "only_d_groups_count": len(only_d),
         "only_e_groups_count": len(only_e),
+        "large_groups_count": len(large_groups),
     }
 
     out_dir = Path(__file__).parent.resolve()
@@ -1173,7 +1175,7 @@ def generate_html(s, duplicates, html_path):
         <button class="filter-btn" data-filter="cross">Hem D hem E ({s['cross_drive_groups_count']})</button>
         <button class="filter-btn" data-filter="d">Sadece D ({s['only_d_groups_count']})</button>
         <button class="filter-btn" data-filter="e">Sadece E ({s['only_e_groups_count']})</button>
-        <button class="filter-btn" data-filter="large">Büyükler (>10MB)</button>
+        <button class="filter-btn" data-filter="large">Büyükler (>10MB) ({s['large_groups_count']})</button>
       </div>
     </div>
 
@@ -1489,7 +1491,6 @@ def generate_html(s, duplicates, html_path):
       }});
 
       updateScriptStats();
-    }}
     }}
 
     function toggleFileSelection(path, isChecked) {{
