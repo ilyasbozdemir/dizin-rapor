@@ -5,6 +5,7 @@ import time
 import json
 from collections import defaultdict
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Windows konsolunda Unicode karakterlerin (✓ vb.) çökmesini engelle
 for _s in (sys.stdout, sys.stderr):
@@ -64,19 +65,22 @@ def format_drives_title(scanned_drives):
 
 def get_quick_sample_hash(filepath, file_size):
     """
-    Reads 64KB from start and 64KB from end of file for instant filtering.
+    128 KB ve altındaki dosyaların TAMAMINI okuyarak KESİN tam SHA-256 hash hesaplar.
+    128 KB üzeri dosyalar için baş 64KB ve son 64KB okuyarak hızlı filtreleme yapar.
     """
     try:
         with open(filepath, "rb") as f:
             h = hashlib.sha256()
-            # head
+            if file_size <= 131072:
+                # 128 KB ve altı dosyaların TAMAMI tek seferde okunur (matematiksel tam hash)
+                h.update(f.read())
+                return h.hexdigest()
+            # 128 KB üzeri dosyalar: Baş 64KB + Son 64KB
             head = f.read(65536)
             h.update(head)
-            # tail if larger
-            if file_size > 131072:
-                f.seek(file_size - 65536)
-                tail = f.read(65536)
-                h.update(tail)
+            f.seek(file_size - 65536)
+            tail = f.read(65536)
+            h.update(tail)
             return h.hexdigest()
     except (PermissionError, OSError):
         return None
@@ -95,6 +99,67 @@ def get_full_hash(filepath, block_size=4*1024*1024):
     except (PermissionError, OSError):
         return None
 
+def scan_subtree(root_path):
+    """Bir alt klasör dalını os.scandir ile hızlı ve rekürsif tarar."""
+    local_size_to_files = defaultdict(list)
+    local_zero_files = []
+    local_count = 0
+    local_bytes = 0
+
+    stack = [root_path]
+    while stack:
+        curr = stack.pop()
+        try:
+            with os.scandir(curr) as it:
+                for entry in it:
+                    try:
+                        if entry.is_symlink():
+                            continue
+                        name_l = entry.name.lower()
+                        if entry.name.startswith("~$") or name_l in EXCLUDE_FILES or name_l.startswith("dumpstack"):
+                            continue
+                        if entry.is_dir(follow_symlinks=False):
+                            if name_l in EXCLUDE_DIRS or entry.name.startswith("$"):
+                                continue
+                            stack.append(entry.path)
+                        elif entry.is_file(follow_symlinks=False):
+                            st = entry.stat(follow_symlinks=False)
+                            sz = st.st_size
+                            local_count += 1
+                            local_bytes += sz
+                            if sz == 0:
+                                local_zero_files.append(entry.path)
+                            else:
+                                local_size_to_files[sz].append(entry.path)
+                    except (PermissionError, OSError):
+                        continue
+        except (PermissionError, OSError):
+            continue
+
+    return local_size_to_files, local_zero_files, local_count, local_bytes
+
+def discover_drive_branches(drive_path):
+    """Sürücü kökündeki ana klasör dallarını ve kök dosyalarını saniyeler içinde keşfeder."""
+    subdirs = []
+    root_files = []
+    try:
+        with os.scandir(drive_path) as it:
+            for entry in it:
+                try:
+                    name_l = entry.name.lower()
+                    if name_l in EXCLUDE_DIRS or entry.name.startswith("$") or name_l in EXCLUDE_FILES:
+                        continue
+                    if entry.is_dir(follow_symlinks=False):
+                        subdirs.append(entry.path)
+                    elif entry.is_file(follow_symlinks=False):
+                        st = entry.stat(follow_symlinks=False)
+                        root_files.append((entry.path, st.st_size))
+                except (PermissionError, OSError):
+                    continue
+    except (PermissionError, OSError):
+        pass
+    return subdirs, root_files
+
 def main():
     start_time = time.time()
     
@@ -104,7 +169,8 @@ def main():
     if cli_paths:
         target_drives = cli_paths
 
-    print(f"[1/4] Hedef dizinler taranıyor: {', '.join(target_drives)}...", flush=True)
+    num_workers = min(16, (os.cpu_count() or 4) * 2)
+    print(f"[1/4] Hedef dizinler paralel taranıyor ({num_workers} iş parçacığı): {', '.join(target_drives)}...", flush=True)
 
     size_to_files = defaultdict(list)
     total_files = 0
@@ -115,69 +181,149 @@ def main():
         if not os.path.exists(drive):
             print(f"Uyarı: {drive} erişilemedi!", flush=True)
             continue
-        print(f"  -> {drive} taranıyor...", flush=True)
+        print(f"  -> {drive} keşfediliyor...", flush=True)
         t_d = time.time()
-        count_d = 0
-        for root, dirs, files in os.walk(drive):
-            dirs[:] = [d for d in dirs if d.lower() not in EXCLUDE_DIRS and not d.startswith("$")]
-            for f in files:
-                f_lower = f.lower()
-                if f_lower in EXCLUDE_FILES or f.startswith("~$") or f_lower.startswith("dumpstack"):
-                    continue
-                p = os.path.join(root, f)
-                try:
-                    st = os.stat(p)
-                    sz = st.st_size
-                    total_files += 1
-                    total_bytes += sz
-                    count_d += 1
-                    if sz == 0:
-                        zero_files.append(p)
-                    else:
-                        size_to_files[sz].append(p)
-                except (PermissionError, OSError):
-                    pass
-        print(f"  -> {drive} tamamlandı: {count_d} dosya ({time.time()-t_d:.2f}s)", flush=True)
+        subdirs, root_files = discover_drive_branches(drive)
+        print(f"     Keşfedilen ana dal: {len(subdirs)} klasör, {len(root_files)} kök dosya", flush=True)
 
-    print(f"Toplam taranan dosya: {total_files} ({format_size(total_bytes)})", flush=True)
+        for p, sz in root_files:
+            total_files += 1
+            total_bytes += sz
+            if sz == 0:
+                zero_files.append(p)
+            else:
+                size_to_files[sz].append(p)
 
-    # Filter candidate sizes
+        # Ana klasör dallarını ThreadPoolExecutor ile paralel tara
+        if subdirs:
+            with ThreadPoolExecutor(max_workers=num_workers) as executor:
+                future_to_dir = {executor.submit(scan_subtree, d): d for d in subdirs}
+                done_branches = 0
+                for future in as_completed(future_to_dir):
+                    branch_dir = future_to_dir[future]
+                    done_branches += 1
+                    try:
+                        b_sizes, b_zero, b_count, b_bytes = future.result()
+                        total_files += b_count
+                        total_bytes += b_bytes
+                        zero_files.extend(b_zero)
+                        for sz, paths in b_sizes.items():
+                            size_to_files[sz].extend(paths)
+                        print(f"     [{done_branches}/{len(subdirs)}] Dal tamamlandı: {os.path.basename(branch_dir)} ({b_count} dosya)", flush=True)
+                    except Exception as e:
+                        print(f"     Hata ({branch_dir}): {e}", flush=True)
+
+        print(f"  -> {drive} tamamlandı: ({time.time()-t_d:.2f}s)", flush=True)
+
+    print(f"Toplam taranan dosya: {total_files:,} ({format_size(total_bytes)})", flush=True)
+
+    # Filter candidate sizes (aynı boyutta en az 2 dosya olanlar)
     candidates = {s: paths for s, paths in size_to_files.items() if len(paths) > 1}
     cand_count = sum(len(p) for p in candidates.values())
-    print(f"[2/4] Aynı boyutta {cand_count} adet potansiyel kopya dosya bulundu ({len(candidates)} farklı boyut grubu).", flush=True)
+    print(f"[2/4] Aynı boyutta {cand_count:,} adet potansiyel kopya dosya bulundu ({len(candidates):,} farklı boyut grubu).", flush=True)
 
-    # Step 2: Quick head+tail sample hash
-    print(f"[3/4] Hızlı örnek hash (Baş + Son 64KB) kontrolü yapılıyor...", flush=True)
+    if cand_count == 0:
+        print("Mükerrer dosya adayı bulunamadı.", flush=True)
+        return
+
+    # Step 3: Quick head+tail sample hash (Paralel)
+    print(f"[3/4] Hızlı örnek hash (Baş + Son 64KB) paralel kontrol ediliyor...", flush=True)
+    all_cand_items = [(p, sz) for sz, paths in candidates.items() for p in paths]
     sample_hash_groups = defaultdict(list)
-    for sz, paths in candidates.items():
-        for p in paths:
-            sh = get_quick_sample_hash(p, sz)
+    processed_samples = 0
+    total_samples = len(all_cand_items)
+    t_sample_start = time.time()
+    last_sample_print = t_sample_start
+
+    def _calc_sample(item):
+        p, sz = item
+        return sz, get_quick_sample_hash(p, sz), p
+
+    with ThreadPoolExecutor(max_workers=num_workers) as executor:
+        for sz, sh, p in executor.map(_calc_sample, all_cand_items, chunksize=500):
+            processed_samples += 1
             if sh:
                 sample_hash_groups[(sz, sh)].append(p)
+            now = time.time()
+            if now - last_sample_print >= 1.0 or processed_samples == total_samples:
+                pct = (processed_samples / total_samples) * 100
+                speed = processed_samples / (now - t_sample_start) if (now - t_sample_start) > 0 else 0
+                eta = (total_samples - processed_samples) / speed if speed > 0 else 0
+                print(f"\r  Örnek Hash: %{pct:.1f} ({processed_samples:,}/{total_samples:,}) | Hız: {int(speed):,} dosya/sn | Kalan: ~{int(eta)}sn   ", end="", flush=True)
+                last_sample_print = now
+    print()
 
     potential_full = {k: paths for k, paths in sample_hash_groups.items() if len(paths) > 1}
     full_count = sum(len(p) for p in potential_full.values())
-    print(f"[4/4] Birebir eşleşen {full_count} aday dosya için tam SHA-256 doğrulaması yapılıyor...", flush=True)
+    print(f"[4/4] Birebir eşleşen {full_count:,} aday dosya için tam SHA-256 doğrulaması yapılıyor...", flush=True)
+
+    # Checkpoint Cache Yükle (Varsa)
+    out_dir = Path(__file__).parent.resolve()
+    cache_path = out_dir / ".scanner_cache.json"
+    hash_cache = {}
+    if cache_path.exists():
+        try:
+            with open(cache_path, "r", encoding="utf-8") as f_c:
+                hash_cache = json.load(f_c)
+            print(f"  Önbellekten {len(hash_cache):,} doğrulanmış hash yüklendi.", flush=True)
+        except Exception:
+            hash_cache = {}
 
     full_hash_groups = defaultdict(list)
+    files_to_hash = []
     processed = 0
-    t_hash_start = time.time()
 
     for (sz, sh), paths in potential_full.items():
-        # Optimization: for files < 100KB, sample hash was already entire file!
+        # 128 KB ve altı dosyalar için get_quick_sample_hash zaten dosyanın TAMAMINI okudu!
+        # Matematiksel olarak tam SHA-256'dır, tekrar diskten okumaya gerek yoktur.
         if sz <= 131072:
             for p in paths:
                 processed += 1
                 full_hash_groups[(sz, sh)].append(p)
             continue
 
+        # 128 KB üzeri dosyalar tam hash doğrulamasına alınır
         for p in paths:
-            processed += 1
-            if processed % 50 == 0 or processed == full_count:
-                print(f"  Doğrulanıyor: {processed}/{full_count} ({format_size(sz)})...", flush=True)
-            fh = get_full_hash(p)
-            if fh:
-                full_hash_groups[(sz, fh)].append(p)
+            if p in hash_cache:
+                processed += 1
+                full_hash_groups[(sz, hash_cache[p])].append(p)
+            else:
+                files_to_hash.append((p, sz))
+
+    t_hash_start = time.time()
+    last_hash_print = t_hash_start
+    total_to_hash = len(files_to_hash)
+
+    def _calc_full(item):
+        p, sz = item
+        return p, sz, get_full_hash(p)
+
+    if files_to_hash:
+        print(f"  {total_to_hash:,} büyük dosya için çok iş parçacıklı tam SHA-256 hesaplanıyor...", flush=True)
+        newly_hashed = 0
+        with ThreadPoolExecutor(max_workers=num_workers) as executor:
+            for p, sz, fh in executor.map(_calc_full, files_to_hash, chunksize=100):
+                processed += 1
+                newly_hashed += 1
+                if fh:
+                    full_hash_groups[(sz, fh)].append(p)
+                    hash_cache[p] = fh
+
+                now = time.time()
+                if now - last_hash_print >= 1.0 or processed == full_count:
+                    pct = (processed / full_count) * 100
+                    speed = newly_hashed / (now - t_hash_start) if (now - t_hash_start) > 0 else 0
+                    eta = (full_count - processed) / speed if speed > 0 else 0
+                    print(f"\r  Tam Doğrulama: %{pct:.1f} ({processed:,}/{full_count:,}) | Hız: {int(speed):,} dosya/sn | Kalan: ~{int(eta)}sn   ", end="", flush=True)
+                    last_hash_print = now
+        print()
+
+    # Önbelleği güncelle
+    try:
+        with open(cache_path, "w", encoding="utf-8") as f_c:
+            json.dump(hash_cache, f_c)
+    except Exception:
+        pass
 
     print(f"Hash doğrulama tamamlandı ({time.time() - t_hash_start:.2f}s)", flush=True)
 

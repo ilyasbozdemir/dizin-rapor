@@ -25,6 +25,7 @@ import {
   Folder,
   FolderKanban,
   FolderOpen,
+  FolderPlus,
   FolderSearch,
   FolderTree,
   HardDrive,
@@ -241,6 +242,7 @@ export default function App() {
   const [activeFilter, setActiveFilter] = useState<
     { type: string; value: string; label: string } | null
   >(null);
+  const [sidebarFilterText, setSidebarFilterText] = useState<string>("");
 
   // Python Runner State
   const [runningTaskId, setRunningTaskId] = useState<string | null>(null);
@@ -1248,95 +1250,235 @@ export default function App() {
         <div className="flex-1 flex overflow-hidden">
           {/* Modern Collapsible Left Sidebar */}
           {isSidebarOpen && (
-            <aside className="w-72 border-r border-slate-200 dark:border-white/10 bg-white dark:bg-[#0c1222] flex flex-col justify-between transition-all duration-200 shadow-sm">
+            <aside className="w-80 border-r border-slate-200 dark:border-white/10 bg-white/95 dark:bg-[#0c1222]/95 backdrop-blur-sm flex flex-col justify-between transition-all duration-200 shadow-sm shrink-0">
               <div className="p-3 overflow-y-auto flex-1">
-                {/* Perspective Switcher Segmented Control */}
-                <div className="mb-3">
-                  <div className="mb-1.5 flex items-center justify-between">
-                    <span className="text-[10px] font-bold text-slate-500 dark:text-gray-400 uppercase tracking-wider">
-                      Kategori Perspektifi
+                {/* 1. Quick Drives & Locations Section */}
+                <div className="mb-3 pb-3 border-b border-slate-200 dark:border-white/10">
+                  <div className="mb-2 flex items-center justify-between">
+                    <span className="text-[10px] font-bold text-slate-500 dark:text-gray-400 uppercase tracking-wider flex items-center gap-1.5">
+                      <HardDrive className="w-3.5 h-3.5 text-indigo-500" />
+                      Sürücüler & Konumlar
                     </span>
-                    <SlidersHorizontal className="w-3 h-3 text-cyan-600 dark:text-cyan-400" />
-                  </div>
-                  <div className="grid grid-cols-2 gap-1 bg-slate-100 dark:bg-[#141d30] p-1 rounded-xl border border-slate-200 dark:border-white/5 text-[11px]">
                     <button
-                      onClick={() => setPerspective("topics")}
-                      className={`py-1 px-1.5 rounded-lg flex items-center justify-center gap-1 transition ${
-                        perspective === "topics"
-                          ? "bg-cyan-600 text-white font-bold shadow-sm"
-                          : "text-slate-600 dark:text-gray-400 hover:text-slate-900 dark:hover:text-white"
-                      }`}
+                      onClick={handleSelectFolder}
+                      className="text-[10px] font-semibold text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 flex items-center gap-1 px-1.5 py-0.5 rounded-md hover:bg-indigo-50 dark:hover:bg-indigo-950/40 transition border border-transparent hover:border-indigo-200 dark:hover:border-indigo-800/40"
+                      title="Bilgisayardan Başka Klasör Seç"
                     >
-                      <Sparkles className="w-3 h-3" />
-                      Konular
-                    </button>
-                    <button
-                      onClick={() => setPerspective("folders")}
-                      className={`py-1 px-1.5 rounded-lg flex items-center justify-center gap-1 transition ${
-                        perspective === "folders"
-                          ? "bg-cyan-600 text-white font-bold shadow-sm"
-                          : "text-slate-600 dark:text-gray-400 hover:text-slate-900 dark:hover:text-white"
-                      }`}
-                    >
-                      <Folder className="w-3 h-3" />
-                      Klasörler
-                    </button>
-                    <button
-                      onClick={() => setPerspective("years")}
-                      className={`py-1 px-1.5 rounded-lg flex items-center justify-center gap-1 transition ${
-                        perspective === "years"
-                          ? "bg-cyan-600 text-white font-bold shadow-sm"
-                          : "text-slate-600 dark:text-gray-400 hover:text-slate-900 dark:hover:text-white"
-                      }`}
-                    >
-                      <Calendar className="w-3 h-3" />
-                      Zaman
-                    </button>
-                    <button
-                      onClick={() => setPerspective("formats")}
-                      className={`py-1 px-1.5 rounded-lg flex items-center justify-center gap-1 transition ${
-                        perspective === "formats"
-                          ? "bg-cyan-600 text-white font-bold shadow-sm"
-                          : "text-slate-600 dark:text-gray-400 hover:text-slate-900 dark:hover:text-white"
-                      }`}
-                    >
-                      <Layers className="w-3 h-3" />
-                      Türler
+                      <FolderPlus className="w-3 h-3" />
+                      Klasör Aç
                     </button>
                   </div>
 
-                  <div className="mt-1 flex justify-end">
+                  {/* Drive Grid */}
+                  <div className="grid grid-cols-3 gap-1.5 mb-2">
+                    {(systemDrives.length > 0
+                      ? systemDrives
+                      : [
+                        { letter: "C", path: "C:\\", label: "C: (Sistem)", isReady: true },
+                        { letter: "D", path: "D:\\", label: "D: (Depo)", isReady: true },
+                        { letter: "E", path: "E:\\", label: "E: (Arşiv)", isReady: true },
+                      ]).map((d) => {
+                      const isCurrent = baseDir.toUpperCase().startsWith(d.letter.toUpperCase() + ":");
+                      return (
+                        <button
+                          key={d.letter}
+                          onClick={() => changeDirectory(d.path)}
+                          className={`px-2 py-1.5 rounded-xl border text-left transition flex flex-col gap-0.5 ${
+                            isCurrent
+                              ? "bg-gradient-to-br from-indigo-600 to-indigo-700 text-white border-indigo-500 shadow-md shadow-indigo-500/20 font-bold"
+                              : "bg-slate-50 dark:bg-[#141d30] text-slate-700 dark:text-gray-300 border-slate-200 dark:border-white/5 hover:border-indigo-300 dark:hover:border-indigo-500/40 hover:bg-indigo-50/50 dark:hover:bg-white/5"
+                          }`}
+                          title={d.label || `${d.letter}: Sürücüsü`}
+                        >
+                          <div className="flex items-center justify-between w-full">
+                            <span className="text-xs font-mono font-bold tracking-tight">{d.letter}:</span>
+                            <span className={`w-1.5 h-1.5 rounded-full ${isCurrent ? "bg-white animate-pulse" : "bg-slate-300 dark:bg-gray-600"}`} />
+                          </div>
+                          <span className={`text-[9px] truncate w-full ${isCurrent ? "text-indigo-100" : "text-slate-400 dark:text-gray-400"}`}>
+                            {d.label ? d.label.replace(/\([A-Z]:\)/i, "").trim().slice(0, 8) : "Yerel Disk"}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Recent Folders Quick Badges */}
+                  {recentFolders.length > 0 && (
+                    <div className="flex items-center gap-1 overflow-x-auto no-scrollbar pt-1">
+                      <span className="text-[9px] text-slate-400 dark:text-gray-400 uppercase font-bold shrink-0">Son:</span>
+                      {recentFolders.slice(0, 4).map((rf) => {
+                        const label = rf.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || rf;
+                        const isCurrent = baseDir.toLowerCase() === rf.toLowerCase();
+                        return (
+                          <button
+                            key={rf}
+                            onClick={() => changeDirectory(rf)}
+                            className={`text-[10px] px-2 py-0.5 rounded-lg truncate max-w-[95px] border transition shrink-0 ${
+                              isCurrent
+                                ? "bg-indigo-100 dark:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 border-indigo-300 dark:border-indigo-600 font-bold shadow-2xs"
+                                : "bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-gray-400 border-slate-200 dark:border-white/5 hover:border-slate-300 dark:hover:border-white/10 hover:text-slate-900 dark:hover:text-white"
+                            }`}
+                            title={rf}
+                          >
+                            {label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {/* 2. Perspective Switcher Segmented Control */}
+                <div className="mb-3">
+                  <div className="mb-1.5 flex items-center justify-between">
+                    <span className="text-[10px] font-bold text-slate-500 dark:text-gray-400 uppercase tracking-wider flex items-center gap-1">
+                      <SlidersHorizontal className="w-3 h-3 text-cyan-600 dark:text-cyan-400" />
+                      Kategori Perspektifi
+                    </span>
+                    <span className="text-[10px] text-slate-400 dark:text-gray-400 font-mono">
+                      {perspective === "topics" && `${analysis.smartTopics.length} konu`}
+                      {perspective === "folders" && `${(realSubfolders.length || analysis.realFolders.length)} klasör`}
+                      {perspective === "years" && `${analysis.yearClusters.length} yıl`}
+                      {perspective === "formats" && `${analysis.formatClusters.length} tür`}
+                      {perspective === "preset" && `${PRESET_MUNICIPAL_TOPICS.length} şablon`}
+                    </span>
+                  </div>
+
+                  {/* 5-Tabs Grid */}
+                  <div className="grid grid-cols-2 gap-1 bg-slate-100 dark:bg-[#141d30] p-1 rounded-xl border border-slate-200 dark:border-white/5 text-[11px]">
                     <button
-                      onClick={() =>
-                        setPerspective(
-                          perspective === "preset" ? "topics" : "preset",
-                        )}
-                      className={`text-[10px] flex items-center gap-1 px-2 py-0.5 rounded transition ${
-                        perspective === "preset"
-                          ? "bg-indigo-100 dark:bg-indigo-600/40 text-indigo-700 dark:text-indigo-300 font-bold border border-indigo-300 dark:border-indigo-500/40"
-                          : "text-slate-500 dark:text-gray-400 hover:text-slate-800 dark:hover:text-gray-200"
+                      onClick={() => setPerspective("topics")}
+                      className={`py-1.5 px-2 rounded-lg flex items-center justify-between gap-1 transition ${
+                        perspective === "topics"
+                          ? "bg-cyan-600 text-white font-bold shadow-sm"
+                          : "text-slate-600 dark:text-gray-400 hover:text-slate-900 dark:hover:text-white hover:bg-white/40 dark:hover:bg-white/5"
                       }`}
                     >
-                      <FolderKanban className="w-3 h-3" />
-                      Kurumsal Şablon ({PRESET_MUNICIPAL_TOPICS.length})
+                      <div className="flex items-center gap-1.5">
+                        <Sparkles className="w-3 h-3" />
+                        <span>Konular</span>
+                      </div>
+                      <span className={`text-[9px] px-1 rounded font-mono ${perspective === "topics" ? "bg-cyan-700 text-cyan-100" : "bg-slate-200/60 dark:bg-white/10 text-slate-500 dark:text-gray-400"}`}>
+                        {analysis.smartTopics.length}
+                      </span>
+                    </button>
+
+                    <button
+                      onClick={() => setPerspective("folders")}
+                      className={`py-1.5 px-2 rounded-lg flex items-center justify-between gap-1 transition ${
+                        perspective === "folders"
+                          ? "bg-amber-600 text-white font-bold shadow-sm"
+                          : "text-slate-600 dark:text-gray-400 hover:text-slate-900 dark:hover:text-white hover:bg-white/40 dark:hover:bg-white/5"
+                      }`}
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <Folder className="w-3 h-3" />
+                        <span>Klasörler</span>
+                      </div>
+                      <span className={`text-[9px] px-1 rounded font-mono ${perspective === "folders" ? "bg-amber-700 text-amber-100" : "bg-slate-200/60 dark:bg-white/10 text-slate-500 dark:text-gray-400"}`}>
+                        {realSubfolders.length > 0 ? realSubfolders.length : analysis.realFolders.length}
+                      </span>
+                    </button>
+
+                    <button
+                      onClick={() => setPerspective("years")}
+                      className={`py-1.5 px-2 rounded-lg flex items-center justify-between gap-1 transition ${
+                        perspective === "years"
+                          ? "bg-emerald-600 text-white font-bold shadow-sm"
+                          : "text-slate-600 dark:text-gray-400 hover:text-slate-900 dark:hover:text-white hover:bg-white/40 dark:hover:bg-white/5"
+                      }`}
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <Calendar className="w-3 h-3" />
+                        <span>Zaman</span>
+                      </div>
+                      <span className={`text-[9px] px-1 rounded font-mono ${perspective === "years" ? "bg-emerald-700 text-emerald-100" : "bg-slate-200/60 dark:bg-white/10 text-slate-500 dark:text-gray-400"}`}>
+                        {analysis.yearClusters.length}
+                      </span>
+                    </button>
+
+                    <button
+                      onClick={() => setPerspective("formats")}
+                      className={`py-1.5 px-2 rounded-lg flex items-center justify-between gap-1 transition ${
+                        perspective === "formats"
+                          ? "bg-purple-600 text-white font-bold shadow-sm"
+                          : "text-slate-600 dark:text-gray-400 hover:text-slate-900 dark:hover:text-white hover:bg-white/40 dark:hover:bg-white/5"
+                      }`}
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <Layers className="w-3 h-3" />
+                        <span>Türler</span>
+                      </div>
+                      <span className={`text-[9px] px-1 rounded font-mono ${perspective === "formats" ? "bg-purple-700 text-purple-100" : "bg-slate-200/60 dark:bg-white/10 text-slate-500 dark:text-gray-400"}`}>
+                        {analysis.formatClusters.length}
+                      </span>
+                    </button>
+
+                    {/* Kurumsal Şablon Tab across full width */}
+                    <button
+                      onClick={() => setPerspective("preset")}
+                      className={`col-span-2 py-1 px-2 rounded-lg flex items-center justify-between gap-1 transition mt-0.5 ${
+                        perspective === "preset"
+                          ? "bg-indigo-600 text-white font-bold shadow-sm"
+                          : "text-slate-600 dark:text-gray-400 hover:text-slate-900 dark:hover:text-white hover:bg-white/40 dark:hover:bg-white/5"
+                      }`}
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <FolderKanban className="w-3 h-3" />
+                        <span>Kurumsal Şablon</span>
+                      </div>
+                      <span className={`text-[9px] px-1.5 rounded font-mono ${perspective === "preset" ? "bg-indigo-700 text-indigo-100" : "bg-slate-200/60 dark:bg-white/10 text-slate-500 dark:text-gray-400"}`}>
+                        {PRESET_MUNICIPAL_TOPICS.length} kategori
+                      </span>
                     </button>
                   </div>
                 </div>
 
-                {/* Active Filter Clear Bar */}
+                {/* 3. In-Sidebar Category Search Field */}
+                <div className="relative mb-2.5">
+                  <Search className="w-3.5 h-3.5 text-slate-400 dark:text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  <input
+                    type="text"
+                    value={sidebarFilterText}
+                    onChange={(e) => setSidebarFilterText(e.target.value)}
+                    placeholder={
+                      perspective === "topics"
+                        ? "Konularda filtrele..."
+                        : perspective === "folders"
+                        ? "Klasörlerde filtrele..."
+                        : perspective === "years"
+                        ? "Yıllarda filtrele..."
+                        : perspective === "formats"
+                        ? "Format / tür filtrele..."
+                        : "Kurumsal şablonda filtrele..."
+                    }
+                    className="w-full bg-slate-100 dark:bg-[#141d30] border border-slate-200 dark:border-white/10 rounded-xl pl-8 pr-7 py-1.5 text-xs text-slate-900 dark:text-gray-100 placeholder-slate-400 dark:placeholder-gray-400 focus:outline-none focus:border-indigo-500 transition"
+                  />
+                  {sidebarFilterText && (
+                    <button
+                      onClick={() => setSidebarFilterText("")}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 rounded-full hover:bg-slate-200 dark:hover:bg-white/10 text-slate-400 hover:text-slate-700 dark:hover:text-white"
+                      title="Aramayı Temizle"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+
+                {/* 4. Active Filter Clear Bar */}
                 {activeFilter && (
-                  <div className="mb-2.5 p-2 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-700/40 flex items-center justify-between text-xs">
+                  <div className="mb-2.5 p-2 rounded-xl bg-gradient-to-r from-indigo-50 to-blue-50 dark:from-indigo-950/70 dark:to-blue-950/70 border border-indigo-200 dark:border-indigo-700/50 flex items-center justify-between text-xs shadow-2xs">
                     <div className="truncate pr-1">
-                      <span className="text-[10px] text-slate-500 dark:text-gray-400 block font-medium">
-                        Seçili Filtre:
+                      <span className="text-[10px] text-indigo-600 dark:text-indigo-400 block font-semibold uppercase tracking-wider">
+                        Aktif Filtre:
                       </span>
-                      <span className="font-bold text-indigo-700 dark:text-indigo-200 truncate block">
+                      <span className="font-bold text-slate-900 dark:text-white truncate block">
                         {activeFilter.label}
                       </span>
                     </div>
                     <button
                       onClick={() => setActiveFilter(null)}
-                      className="p-1 hover:bg-slate-200 dark:hover:bg-white/10 rounded-lg text-slate-600 dark:text-gray-300"
+                      className="p-1 hover:bg-indigo-100 dark:hover:bg-white/10 rounded-lg text-indigo-700 dark:text-indigo-300 transition"
                       title="Filtreyi Temizle"
                     >
                       <X className="w-3.5 h-3.5" />
@@ -1344,41 +1486,53 @@ export default function App() {
                   </div>
                 )}
 
-                {/* All Files Button */}
+                {/* 5. All Files Reset Button */}
                 <button
-                  onClick={() => setActiveFilter(null)}
-                  className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs flex items-center justify-between transition mb-2 ${
-                    !activeFilter
-                      ? "bg-indigo-50 dark:bg-indigo-600/30 text-indigo-700 dark:text-indigo-300 font-bold border border-indigo-300 dark:border-indigo-500/30 shadow-xs"
-                      : "text-slate-600 dark:text-gray-400 hover:bg-slate-100 dark:hover:bg-white/5 hover:text-slate-900 dark:hover:text-gray-200"
+                  onClick={() => {
+                    setActiveFilter(null);
+                    setSelectedTag(null);
+                  }}
+                  className={`w-full text-left px-2.5 py-1.5 rounded-xl text-xs flex items-center justify-between transition mb-2 border ${
+                    !activeFilter && !selectedTag
+                      ? "bg-indigo-50 dark:bg-indigo-600/30 text-indigo-700 dark:text-indigo-300 font-bold border-indigo-300 dark:border-indigo-500/40 shadow-xs"
+                      : "bg-transparent text-slate-600 dark:text-gray-400 border-transparent hover:bg-slate-100 dark:hover:bg-white/5 hover:text-slate-900 dark:hover:text-gray-200"
                   }`}
                 >
                   <div className="flex items-center gap-2">
                     <FolderOpen className="w-4 h-4 text-indigo-500" />
                     <span>Tüm Dosyalar</span>
                   </div>
-                  <span className="text-[10px] px-1.5 py-0.2 rounded bg-slate-200/70 dark:bg-white/10 text-slate-700 dark:text-gray-300 font-mono font-bold">
+                  <span className="text-[10px] px-1.5 py-0.2 rounded-md bg-slate-200/70 dark:bg-white/10 text-slate-700 dark:text-gray-300 font-mono font-bold">
                     {files.length}
                   </span>
                 </button>
 
-                {/* PERSPECTIVE 1: DYNAMIC TOPICS */}
+                {/* 6. PERSPECTIVE 1: DYNAMIC TOPICS */}
                 {perspective === "topics" && (
                   <div className="space-y-0.5">
-                    <div className="text-[10px] font-bold text-cyan-600 dark:text-cyan-400 uppercase tracking-wider py-1 flex items-center gap-1">
-                      <Sparkles className="w-3 h-3" />
-                      İsimlerden Analiz Edilen Konular
+                    <div className="text-[10px] font-bold text-cyan-600 dark:text-cyan-400 uppercase tracking-wider py-1 flex items-center justify-between">
+                      <div className="flex items-center gap-1">
+                        <Sparkles className="w-3 h-3" />
+                        İsimlerden Analiz Edilen Konular
+                      </div>
+                      {sidebarFilterText && (
+                        <span className="text-[9px] text-slate-400 font-mono">
+                          {analysis.smartTopics.filter((t) => t.label.toLowerCase().includes(sidebarFilterText.toLowerCase())).length} / {analysis.smartTopics.length}
+                        </span>
+                      )}
                     </div>
-                    {analysis.smartTopics.length === 0
-                      ? (
-                        <p className="text-xs text-slate-500 dark:text-gray-500 italic p-2">
-                          Tekrarlayan konu anahtarı tespit edilemedi.
-                        </p>
-                      )
-                      : (
-                        analysis.smartTopics.map((topic) => {
-                          const isActive = activeFilter?.type === "topic" &&
-                            activeFilter.value === topic.label;
+                    {analysis.smartTopics.length === 0 ? (
+                      <p className="text-xs text-slate-500 dark:text-gray-400 italic p-2 text-center">
+                        Tekrarlayan konu anahtarı tespit edilemedi.
+                      </p>
+                    ) : (
+                      analysis.smartTopics
+                        .filter((topic) =>
+                          !sidebarFilterText.trim() ||
+                          topic.label.toLowerCase().includes(sidebarFilterText.toLowerCase())
+                        )
+                        .map((topic) => {
+                          const isActive = activeFilter?.type === "topic" && activeFilter.value === topic.label;
                           return (
                             <button
                               key={topic.id}
@@ -1392,42 +1546,51 @@ export default function App() {
                                       label: `Konu: ${topic.label}`,
                                     },
                                 )}
-                              className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs flex items-center justify-between transition ${
+                              className={`w-full text-left px-2.5 py-1.5 rounded-xl text-xs flex items-center justify-between transition border ${
                                 isActive
-                                  ? "bg-cyan-50 dark:bg-cyan-600/30 text-cyan-800 dark:text-cyan-200 font-bold border border-cyan-300 dark:border-cyan-500/40"
-                                  : "text-slate-700 dark:text-gray-300 hover:bg-slate-100 dark:hover:bg-white/5 hover:text-slate-900 dark:hover:text-white"
+                                  ? "bg-cyan-50 dark:bg-cyan-600/30 text-cyan-900 dark:text-cyan-200 font-bold border-cyan-300 dark:border-cyan-500/40 shadow-xs"
+                                  : "bg-transparent text-slate-700 dark:text-gray-300 border-transparent hover:bg-slate-100 dark:hover:bg-white/5 hover:text-slate-900 dark:hover:text-white"
                               }`}
                             >
                               <div className="flex items-center gap-2 truncate">
-                                <span className="w-1.5 h-1.5 rounded-full bg-cyan-500 shrink-0" />
+                                <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${isActive ? "bg-cyan-600 dark:bg-cyan-400 ring-2 ring-cyan-400/30" : "bg-cyan-500"}`} />
                                 <span className="truncate">{topic.label}</span>
                               </div>
-                              <span className="text-[10px] px-1.5 py-0.2 rounded bg-slate-200/60 dark:bg-white/5 text-slate-600 dark:text-gray-400 font-mono">
+                              <span className="text-[10px] px-1.5 py-0.2 rounded-md bg-slate-200/60 dark:bg-white/10 text-slate-600 dark:text-gray-400 font-mono">
                                 {topic.count}
                               </span>
                             </button>
                           );
                         })
-                      )}
+                    )}
                   </div>
                 )}
 
-                {/* PERSPECTIVE 2: REAL FOLDERS */}
+                {/* 7. PERSPECTIVE 2: REAL FOLDERS */}
                 {perspective === "folders" && (
                   <div className="space-y-0.5">
-                    <div className="text-[10px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider py-1 flex items-center gap-1">
-                      <Folder className="w-3 h-3" />
-                      Gerçek Klasörler
+                    <div className="text-[10px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider py-1 flex items-center justify-between">
+                      <div className="flex items-center gap-1">
+                        <Folder className="w-3 h-3" />
+                        Gerçek Klasörler
+                      </div>
+                      {sidebarFilterText && (
+                        <span className="text-[9px] text-slate-400 font-mono">
+                          {(realSubfolders.length > 0 ? realSubfolders : analysis.realFolders).filter((f: any) =>
+                            (f.name || f.label || "").toLowerCase().includes(sidebarFilterText.toLowerCase())
+                          ).length} adet
+                        </span>
+                      )}
                     </div>
-                    {(realSubfolders.length > 0
-                      ? realSubfolders
-                      : analysis.realFolders).map((f: any) => {
+                    {(realSubfolders.length > 0 ? realSubfolders : analysis.realFolders)
+                      .filter((f: any) =>
+                        !sidebarFilterText.trim() ||
+                        (f.name || f.label || "").toLowerCase().includes(sidebarFilterText.toLowerCase())
+                      )
+                      .map((f: any) => {
                         const name = f.name || f.label;
-                        const isActive = activeFilter?.type === "folder" &&
-                          activeFilter.value === name;
-                        const count = f.fileCount !== undefined
-                          ? f.fileCount
-                          : f.count;
+                        const isActive = activeFilter?.type === "folder" && activeFilter.value === name;
+                        const count = f.fileCount !== undefined ? f.fileCount : f.count;
                         return (
                           <button
                             key={name}
@@ -1441,17 +1604,17 @@ export default function App() {
                                     label: `Klasör: ${name}`,
                                   },
                               )}
-                            className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs flex items-center justify-between transition ${
+                            className={`w-full text-left px-2.5 py-1.5 rounded-xl text-xs flex items-center justify-between transition border ${
                               isActive
-                                ? "bg-amber-50 dark:bg-amber-600/30 text-amber-800 dark:text-amber-200 font-bold border border-amber-300 dark:border-amber-500/40"
-                                : "text-slate-700 dark:text-gray-300 hover:bg-slate-100 dark:hover:bg-white/5 hover:text-slate-900 dark:hover:text-white"
+                                ? "bg-amber-50 dark:bg-amber-600/30 text-amber-900 dark:text-amber-200 font-bold border-amber-300 dark:border-amber-500/40 shadow-xs"
+                                : "bg-transparent text-slate-700 dark:text-gray-300 border-transparent hover:bg-slate-100 dark:hover:bg-white/5 hover:text-slate-900 dark:hover:text-white"
                             }`}
                           >
                             <div className="flex items-center gap-2 truncate">
                               <Folder className="w-3.5 h-3.5 text-amber-500 shrink-0" />
                               <span className="truncate">{name}</span>
                             </div>
-                            <span className="text-[10px] px-1.5 py-0.2 rounded bg-slate-200/60 dark:bg-white/5 text-slate-600 dark:text-gray-400 font-mono">
+                            <span className="text-[10px] px-1.5 py-0.2 rounded-md bg-slate-200/60 dark:bg-white/10 text-slate-600 dark:text-gray-400 font-mono">
                               {count}
                             </span>
                           </button>
@@ -1460,182 +1623,210 @@ export default function App() {
                   </div>
                 )}
 
-                {/* PERSPECTIVE 3: YEARS */}
+                {/* 8. PERSPECTIVE 3: YEARS */}
                 {perspective === "years" && (
                   <div className="space-y-0.5">
-                    <div className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider py-1 flex items-center gap-1">
-                      <Calendar className="w-3 h-3" />
-                      Zaman & Yıl Çizelgesi
+                    <div className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider py-1 flex items-center justify-between">
+                      <div className="flex items-center gap-1">
+                        <Calendar className="w-3 h-3" />
+                        Zaman & Yıl Çizelgesi
+                      </div>
                     </div>
-                    {analysis.yearClusters.map((cluster) => {
-                      const yr = cluster.badge || cluster.label;
-                      const isActive = activeFilter?.type === "year" &&
-                        activeFilter.value === yr;
-                      return (
-                        <button
-                          key={cluster.id}
-                          onClick={() =>
-                            setActiveFilter(
+                    {analysis.yearClusters
+                      .filter((cluster) =>
+                        !sidebarFilterText.trim() ||
+                        String(cluster.badge || cluster.label).toLowerCase().includes(sidebarFilterText.toLowerCase())
+                      )
+                      .map((cluster) => {
+                        const yr = cluster.badge || cluster.label;
+                        const isActive = activeFilter?.type === "year" && activeFilter.value === yr;
+                        return (
+                          <button
+                            key={cluster.id}
+                            onClick={() =>
+                              setActiveFilter(
+                                isActive
+                                  ? null
+                                  : {
+                                    type: "year",
+                                    value: yr,
+                                    label: `${yr} Yılı Belgeleri`,
+                                  },
+                              )}
+                            className={`w-full text-left px-2.5 py-1.5 rounded-xl text-xs flex items-center justify-between transition border ${
                               isActive
-                                ? null
-                                : {
-                                  type: "year",
-                                  value: yr,
-                                  label: `${yr} Yılı Belgeleri`,
-                                },
-                            )}
-                          className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs flex items-center justify-between transition ${
-                            isActive
-                              ? "bg-emerald-50 dark:bg-emerald-600/30 text-emerald-800 dark:text-emerald-200 font-bold border border-emerald-300 dark:border-emerald-500/40"
-                              : "text-slate-700 dark:text-gray-300 hover:bg-slate-100 dark:hover:bg-white/5 hover:text-slate-900 dark:hover:text-white"
-                          }`}
-                        >
-                          <div className="flex items-center gap-2 truncate">
-                            <Calendar className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-                            <span className="truncate">{yr} Yılı</span>
-                          </div>
-                          <span className="text-[10px] px-1.5 py-0.2 rounded bg-slate-200/60 dark:bg-white/5 text-slate-600 dark:text-gray-400 font-mono">
-                            {cluster.count}
-                          </span>
-                        </button>
-                      );
-                    })}
+                                ? "bg-emerald-50 dark:bg-emerald-600/30 text-emerald-900 dark:text-emerald-200 font-bold border-emerald-300 dark:border-emerald-500/40 shadow-xs"
+                                : "bg-transparent text-slate-700 dark:text-gray-300 border-transparent hover:bg-slate-100 dark:hover:bg-white/5 hover:text-slate-900 dark:hover:text-white"
+                            }`}
+                          >
+                            <div className="flex items-center gap-2 truncate">
+                              <Calendar className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                              <span className="truncate">{yr} Yılı</span>
+                            </div>
+                            <span className="text-[10px] px-1.5 py-0.2 rounded-md bg-slate-200/60 dark:bg-white/10 text-slate-600 dark:text-gray-400 font-mono">
+                              {cluster.count}
+                            </span>
+                          </button>
+                        );
+                      })}
                   </div>
                 )}
 
-                {/* PERSPECTIVE 4: FORMATS */}
+                {/* 9. PERSPECTIVE 4: FORMATS */}
                 {perspective === "formats" && (
                   <div className="space-y-0.5">
-                    <div className="text-[10px] font-bold text-purple-600 dark:text-purple-400 uppercase tracking-wider py-1 flex items-center gap-1">
-                      <Layers className="w-3 h-3" />
-                      Dosya Türü & Format Kümeleri
+                    <div className="text-[10px] font-bold text-purple-600 dark:text-purple-400 uppercase tracking-wider py-1 flex items-center justify-between">
+                      <div className="flex items-center gap-1">
+                        <Layers className="w-3 h-3" />
+                        Dosya Türü & Format Kümeleri
+                      </div>
                     </div>
-                    {analysis.formatClusters.map((cluster) => {
-                      const isActive = activeFilter?.type === "format" &&
-                        activeFilter.value === cluster.id;
-                      return (
-                        <button
-                          key={cluster.id}
-                          onClick={() =>
-                            setActiveFilter(
+                    {analysis.formatClusters
+                      .filter((cluster) =>
+                        !sidebarFilterText.trim() ||
+                        cluster.label.toLowerCase().includes(sidebarFilterText.toLowerCase())
+                      )
+                      .map((cluster) => {
+                        const isActive = activeFilter?.type === "format" && activeFilter.value === cluster.id;
+                        return (
+                          <button
+                            key={cluster.id}
+                            onClick={() =>
+                              setActiveFilter(
+                                isActive
+                                  ? null
+                                  : {
+                                    type: "format",
+                                    value: cluster.id,
+                                    label: cluster.label,
+                                  },
+                              )}
+                            className={`w-full text-left px-2.5 py-1.5 rounded-xl text-xs flex items-center justify-between transition border ${
                               isActive
-                                ? null
-                                : {
-                                  type: "format",
-                                  value: cluster.id,
-                                  label: cluster.label,
-                                },
-                            )}
-                          className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs flex items-center justify-between transition ${
-                            isActive
-                              ? "bg-purple-50 dark:bg-purple-600/30 text-purple-800 dark:text-purple-200 font-bold border border-purple-300 dark:border-purple-500/40"
-                              : "text-slate-700 dark:text-gray-300 hover:bg-slate-100 dark:hover:bg-white/5 hover:text-slate-900 dark:hover:text-white"
-                          }`}
-                        >
-                          <div className="flex items-center gap-2 truncate">
-                            <Layers className="w-3.5 h-3.5 text-purple-500 shrink-0" />
-                            <span className="truncate">{cluster.label}</span>
-                          </div>
-                          <span className="text-[10px] px-1.5 py-0.2 rounded bg-slate-200/60 dark:bg-white/5 text-slate-600 dark:text-gray-400 font-mono">
-                            {cluster.count}
-                          </span>
-                        </button>
-                      );
-                    })}
+                                ? "bg-purple-50 dark:bg-purple-600/30 text-purple-900 dark:text-purple-200 font-bold border-purple-300 dark:border-purple-500/40 shadow-xs"
+                                : "bg-transparent text-slate-700 dark:text-gray-300 border-transparent hover:bg-slate-100 dark:hover:bg-white/5 hover:text-slate-900 dark:hover:text-white"
+                            }`}
+                          >
+                            <div className="flex items-center gap-2 truncate">
+                              <Layers className="w-3.5 h-3.5 text-purple-500 shrink-0" />
+                              <span className="truncate">{cluster.label}</span>
+                            </div>
+                            <span className="text-[10px] px-1.5 py-0.2 rounded-md bg-slate-200/60 dark:bg-white/10 text-slate-600 dark:text-gray-400 font-mono">
+                              {cluster.count}
+                            </span>
+                          </button>
+                        );
+                      })}
                   </div>
                 )}
 
-                {/* PERSPECTIVE 5: PRESET */}
+                {/* 10. PERSPECTIVE 5: PRESET */}
                 {perspective === "preset" && (
                   <div className="space-y-0.5">
-                    <div className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider py-1 flex items-center gap-1">
-                      <FolderKanban className="w-3 h-3" />
-                      Kurumsal Şablon (13 Konu)
+                    <div className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider py-1 flex items-center justify-between">
+                      <div className="flex items-center gap-1">
+                        <FolderKanban className="w-3 h-3" />
+                        Kurumsal Şablon ({PRESET_MUNICIPAL_TOPICS.length})
+                      </div>
                     </div>
-                    {PRESET_MUNICIPAL_TOPICS.map((topic) => {
-                      const isActive = activeFilter?.type === "preset" &&
-                        activeFilter.value === topic;
-                      return (
-                        <button
-                          key={topic}
-                          onClick={() =>
-                            setActiveFilter(
+                    {PRESET_MUNICIPAL_TOPICS
+                      .filter((topic) =>
+                        !sidebarFilterText.trim() ||
+                        topic.toLowerCase().includes(sidebarFilterText.toLowerCase())
+                      )
+                      .map((topic) => {
+                        const isActive = activeFilter?.type === "preset" && activeFilter.value === topic;
+                        return (
+                          <button
+                            key={topic}
+                            onClick={() =>
+                              setActiveFilter(
+                                isActive
+                                  ? null
+                                  : {
+                                    type: "preset",
+                                    value: topic,
+                                    label: `Şablon: ${topic}`,
+                                  },
+                              )}
+                            className={`w-full text-left px-2.5 py-1.5 rounded-xl text-xs truncate flex items-center gap-2 transition border ${
                               isActive
-                                ? null
-                                : {
-                                  type: "preset",
-                                  value: topic,
-                                  label: `Şablon: ${topic}`,
-                                },
-                            )}
-                          className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs truncate flex items-center gap-2 transition ${
-                            isActive
-                              ? "bg-indigo-50 dark:bg-indigo-600/30 text-indigo-800 dark:text-indigo-300 font-bold border border-indigo-300 dark:border-indigo-500/30"
-                              : "text-slate-600 dark:text-gray-400 hover:bg-slate-100 dark:hover:bg-white/5 hover:text-slate-900 dark:hover:text-gray-200"
-                          }`}
-                        >
-                          <Folder className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                          <span className="truncate">{topic}</span>
-                        </button>
-                      );
-                    })}
+                                ? "bg-indigo-50 dark:bg-indigo-600/30 text-indigo-900 dark:text-indigo-300 font-bold border-indigo-300 dark:border-indigo-500/30 shadow-xs"
+                                : "bg-transparent text-slate-600 dark:text-gray-400 border-transparent hover:bg-slate-100 dark:hover:bg-white/5 hover:text-slate-900 dark:hover:text-gray-200"
+                            }`}
+                          >
+                            <Folder className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                            <span className="truncate">{topic}</span>
+                          </button>
+                        );
+                      })}
                   </div>
                 )}
 
-                {/* Tags Filter */}
-                <div className="mt-6 pt-4 border-t border-slate-200 dark:border-white/10">
+                {/* 11. Tags Filter Section */}
+                <div className="mt-5 pt-3.5 border-t border-slate-200 dark:border-white/10">
                   <div className="text-[10px] font-bold text-slate-500 dark:text-gray-400 uppercase tracking-wider mb-2 flex items-center justify-between">
                     <span className="flex items-center gap-1.5">
                       <Tag className="w-3.5 h-3.5 text-cyan-600 dark:text-cyan-400" />
-                      Akıllı Etiketler
+                      Akıllı Etiketler ({allUniqueTags.length})
                     </span>
                     {selectedTag && (
                       <button
                         onClick={() => setSelectedTag(null)}
-                        className="text-[10px] text-slate-500 dark:text-gray-400 hover:text-slate-900 dark:hover:text-white"
+                        className="text-[10px] font-bold text-cyan-600 dark:text-cyan-400 hover:underline"
                       >
                         Temizle
                       </button>
                     )}
                   </div>
                   <div className="flex flex-wrap gap-1.5">
-                    {allUniqueTags.length === 0
-                      ? (
-                        <p className="text-[11px] text-slate-400 dark:text-gray-500 italic">
-                          Henüz etiket eklenmedi.
-                        </p>
-                      )
-                      : (
-                        allUniqueTags.map((t) => (
-                          <button
-                            key={t}
-                            onClick={() =>
-                              setSelectedTag(selectedTag === t ? null : t)}
-                            className={`text-[11px] px-2 py-0.5 rounded-full border transition flex items-center gap-1 font-medium ${
-                              selectedTag === t
-                                ? "bg-cyan-600 text-white border-cyan-500 shadow-xs"
-                                : getTagClass(t, theme)
-                            }`}
-                          >
-                            #{t}
-                          </button>
-                        ))
-                      )}
+                    {allUniqueTags.length === 0 ? (
+                      <p className="text-[11px] text-slate-400 dark:text-gray-500 italic">
+                        Henüz etiket eklenmedi.
+                      </p>
+                    ) : (
+                      allUniqueTags.map((t) => (
+                        <button
+                          key={t}
+                          onClick={() => setSelectedTag(selectedTag === t ? null : t)}
+                          className={`text-[11px] px-2 py-0.5 rounded-full border transition flex items-center gap-1 font-medium ${
+                            selectedTag === t
+                              ? "bg-cyan-600 text-white border-cyan-500 shadow-xs"
+                              : getTagClass(t, theme)
+                          }`}
+                        >
+                          #{t}
+                        </button>
+                      ))
+                    )}
                   </div>
                 </div>
               </div>
 
-              {/* Sidebar Footer Info Card */}
-              <div className="p-3 border-t border-slate-200 dark:border-white/10 bg-slate-50/80 dark:bg-[#080c16]/80 text-xs">
-                <div className="flex items-center justify-between text-slate-500 dark:text-gray-400 mb-1">
+              {/* 12. Modern Sidebar Footer Info Card */}
+              <div className="p-3 border-t border-slate-200 dark:border-white/10 bg-slate-50/90 dark:bg-[#080c16]/90 text-xs">
+                <div className="flex items-center justify-between text-slate-500 dark:text-gray-400 mb-1.5">
+                  <span className="truncate max-w-[140px]" title={baseDir}>
+                    {baseDir}
+                  </span>
+                  <button
+                    onClick={() => api.showInFolder(baseDir)}
+                    className="text-[10px] text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1"
+                    title="Bu klasörü Windows Gezgininde aç"
+                  >
+                    <ExternalLink className="w-3 h-3" />
+                    Gezginde Aç
+                  </button>
+                </div>
+                <div className="flex items-center justify-between text-slate-600 dark:text-gray-300 mb-1">
                   <span>Görüntülenen:</span>
                   <b className="text-cyan-700 dark:text-cyan-400 font-mono font-bold">
                     {filteredFiles.length} / {files.length} dosya
                   </b>
                 </div>
                 {reports?.duplicate?.summary && (
-                  <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-gray-400 pt-1 border-t border-slate-200/60 dark:border-white/5">
-                    <span>Kurtarılan Alan:</span>
+                  <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-gray-400 pt-1.5 border-t border-slate-200/60 dark:border-white/5">
+                    <span>Kurtarılabilir Alan:</span>
                     <span className="text-emerald-600 dark:text-emerald-400 font-bold font-mono">
                       {reports.duplicate.summary.total_wasted_formatted}
                     </span>
