@@ -3,15 +3,19 @@
   "version": "1.0.0-beta.1",
   "type": "module",
   "description": "Windows 10/11 Çevrimdışı Arşiv Gezgini ve Dosya Yöneticisi",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ilyasbozdemir/dizin-rapor.git"
+  },
   "main": "./out/main/index.js",
   "author": "Antigravity",
   "scripts": {
     "dev": "electron-vite dev",
     "start": "electron .",
     "build": "electron-vite build",
-    "build:all": "electron-vite build && electron-builder --win nsis portable",
-    "build:portable": "electron-vite build && electron-builder --win portable",
-    "build:installer": "electron-vite build && electron-builder --win nsis",
+    "build:all": "electron-vite build && electron-builder --win nsis portable --publish never",
+    "build:portable": "electron-vite build && electron-builder --win portable --publish never",
+    "build:installer": "electron-vite build && electron-builder --win nsis --publish never",
     "build:unpack": "electron-vite build && electron-builder --dir",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
@@ -65,6 +69,11 @@
   "build": {
     "appId": "com.arsiv.gezgini",
     "productName": "Arsiv-360",
+    "publish": {
+      "provider": "github",
+      "owner": "ilyasbozdemir",
+      "repo": "dizin-rapor"
+    },
     "directories": {
       "output": "dist",
       "buildResources": "build"
