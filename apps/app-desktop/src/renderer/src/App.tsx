@@ -203,24 +203,29 @@ export default function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(true);
 
   // Dynamic Active Explorer Directory
-  const [baseDir, setBaseDir] = useState<string>("D:\\E_BIRLESTIRME");
-  const [pathInput, setPathInput] = useState<string>("D:\\E_BIRLESTIRME");
+  const [baseDir, setBaseDir] = useState<string>("D:\\");
+  const [pathInput, setPathInput] = useState<string>("D:\\");
   const [isEditingPath, setIsEditingPath] = useState<boolean>(false);
   const [scanDepth, setScanDepth] = useState<number>(2);
   const [systemDrives, setSystemDrives] = useState<SystemDrive[]>([]);
   const [recentFolders, setRecentFolders] = useState<string[]>(() => {
     try {
       const saved = localStorage.getItem("recent_folders");
-      if (saved) return JSON.parse(saved);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          return parsed.filter((p) => p !== "D:\\E_BIRLESTIRME");
+        }
+      }
     } catch {}
-    return ["E:\\", "D:\\E_BIRLESTIRME"];
+    return ["D:\\", "C:\\"];
   });
 
   // Dynamic Python Runner Source & Target Directories
-  const [runnerSourceDir, setRunnerSourceDir] = useState<string>("E:\\");
-  const [scannerDrives, setScannerDrives] = useState<string[]>(["D:\\", "E:\\"]);
+  const [runnerSourceDir, setRunnerSourceDir] = useState<string>("D:\\");
+  const [scannerDrives, setScannerDrives] = useState<string[]>(["D:\\"]);
   const [runnerTargetDir, setRunnerTargetDir] = useState<string>(
-    "D:\\E_BIRLESTIRME",
+    "D:\\Arsiv_Birlesik",
   );
   const [runnerScheme, setRunnerScheme] = useState<string>("konu-tip");
 
@@ -252,12 +257,18 @@ export default function App() {
   // Reports State & Duplicate Script Generator
   const [reports, setReports] = useState<any>(null);
   const [loadingReports, setLoadingReports] = useState<boolean>(false);
-  const [selectedDuplicatePaths, setSelectedDuplicatePaths] = useState<string[]>([]);
-  const [duplicatePlatform, setDuplicatePlatform] = useState<"powershell" | "cmd" | "bash">("powershell");
+  const [selectedDuplicatePaths, setSelectedDuplicatePaths] = useState<
+    string[]
+  >([]);
+  const [duplicatePlatform, setDuplicatePlatform] = useState<
+    "powershell" | "cmd" | "bash"
+  >("powershell");
   const [isDuplicateSafeMode, setIsDuplicateSafeMode] = useState<boolean>(true);
   const [copiedScript, setCopiedScript] = useState<boolean>(false);
   const [showScriptPreview, setShowScriptPreview] = useState<boolean>(false);
-  const [duplicateViewMode, setDuplicateViewMode] = useState<"tree" | "list">("tree");
+  const [duplicateViewMode, setDuplicateViewMode] = useState<"tree" | "list">(
+    "tree",
+  );
   const [fileExistMap, setFileExistMap] = useState<Record<string, boolean>>({});
   const [isCheckingLive, setIsCheckingLive] = useState<boolean>(false);
   const [isExecutingAction, setIsExecutingAction] = useState<boolean>(false);
@@ -282,7 +293,7 @@ export default function App() {
     for (let i = 0; i < first.length; i++) {
       const part = first[i];
       const allMatch = splitDirs.every(
-        (sd) => i < sd.length && sd[i].toLowerCase() === part.toLowerCase()
+        (sd) => i < sd.length && sd[i].toLowerCase() === part.toLowerCase(),
       );
       if (allMatch) {
         commonParts.push(part);
@@ -299,20 +310,22 @@ export default function App() {
   };
 
   const organizeFilesIntoTree = (
-    files: any[]
-  ): { commonRoot: string; branches: { subfolder: string; files: any[] }[] } => {
+    files: any[],
+  ): {
+    commonRoot: string;
+    branches: { subfolder: string; files: any[] }[];
+  } => {
     const paths = files.map((f) => f.path).filter(Boolean);
     const commonRoot = getCommonPathPrefix(paths);
 
     const branchMap: Record<string, any[]> = {};
     files.forEach((f) => {
-      const fullDir =
-        f.directory ||
+      const fullDir = f.directory ||
         (f.path
           ? f.path.substring(
-              0,
-              Math.max(f.path.lastIndexOf("\\"), f.path.lastIndexOf("/"))
-            )
+            0,
+            Math.max(f.path.lastIndexOf("\\"), f.path.lastIndexOf("/")),
+          )
           : "");
       let relative = "";
       if (
@@ -356,11 +369,15 @@ export default function App() {
       .then((drives) => {
         if (drives && drives.length > 0) {
           setSystemDrives(drives);
-          const availableTargetDrives = drives
-            .filter((d) => ["D", "E"].includes(d.letter.toUpperCase()))
-            .map((d) => d.path);
-          if (availableTargetDrives.length > 0) {
-            setScannerDrives(availableTargetDrives);
+          const preferred =
+            drives.find((d) => d.letter.toUpperCase() === "D") ||
+            drives.find((d) => d.letter.toUpperCase() === "E") ||
+            drives[0];
+          if (preferred) {
+            setBaseDir(preferred.path);
+            setPathInput(preferred.path);
+            setRunnerSourceDir(preferred.path);
+            setScannerDrives([preferred.path]);
           }
         }
       })
@@ -403,16 +420,21 @@ export default function App() {
       alert("Lütfen taşınacak en az bir dosya seçin.");
       return;
     }
-    const confirmMsg = `${targetPaths.length} adet mükerrer dosya diskin kökündeki '_SILINECEK_KOPYALAR' klasörüne taşınacak.\n\nOnaylıyor musunuz?`;
+    const confirmMsg =
+      `${targetPaths.length} adet mükerrer dosya diskin kökündeki '_SILINECEK_KOPYALAR' klasörüne taşınacak.\n\nOnaylıyor musunuz?`;
     if (!window.confirm(confirmMsg)) return;
 
     setIsExecutingAction(true);
     try {
       const res = await api.moveFiles({ filePaths: targetPaths });
       alert(
-        `İşlem Tamamlandı!\n✓ Başarıyla Taşınan: ${res.successCount} dosya\n❌ Hata: ${res.failCount}\n\nHedef: ${res.targetFolder || '_SILINECEK_KOPYALAR'}`
+        `İşlem Tamamlandı!\n✓ Başarıyla Taşınan: ${res.successCount} dosya\n❌ Hata: ${res.failCount}\n\nHedef: ${
+          res.targetFolder || "_SILINECEK_KOPYALAR"
+        }`,
       );
-      setSelectedDuplicatePaths((prev) => prev.filter((p) => !targetPaths.includes(p)));
+      setSelectedDuplicatePaths((prev) =>
+        prev.filter((p) => !targetPaths.includes(p))
+      );
       await checkLiveExistence();
     } catch (err: any) {
       alert("Taşıma sırasında hata oluştu: " + err.message);
@@ -427,16 +449,22 @@ export default function App() {
       alert("Lütfen silinecek en az bir dosya seçin.");
       return;
     }
-    const confirmMsg = `${targetPaths.length} adet dosya işletim sisteminin Geri Dönüşüm Kutusuna (Çöp Kutusu) taşınacak.\n\nİstediğiniz zaman geri alabilirsiniz. Devam edilsin mi?`;
+    const confirmMsg =
+      `${targetPaths.length} adet dosya işletim sisteminin Geri Dönüşüm Kutusuna (Çöp Kutusu) taşınacak.\n\nİstediğiniz zaman geri alabilirsiniz. Devam edilsin mi?`;
     if (!window.confirm(confirmMsg)) return;
 
     setIsExecutingAction(true);
     try {
-      const res = await api.deleteFiles({ filePaths: targetPaths, useRecycleBin: true });
+      const res = await api.deleteFiles({
+        filePaths: targetPaths,
+        useRecycleBin: true,
+      });
       alert(
-        `İşlem Tamamlandı!\n✓ Geri Dönüşüm Kutusuna Taşınan: ${res.successCount} dosya\n❌ Hata: ${res.failCount}`
+        `İşlem Tamamlandı!\n✓ Geri Dönüşüm Kutusuna Taşınan: ${res.successCount} dosya\n❌ Hata: ${res.failCount}`,
       );
-      setSelectedDuplicatePaths((prev) => prev.filter((p) => !targetPaths.includes(p)));
+      setSelectedDuplicatePaths((prev) =>
+        prev.filter((p) => !targetPaths.includes(p))
+      );
       await checkLiveExistence();
     } catch (err: any) {
       alert("Silme sırasında hata oluştu: " + err.message);
@@ -507,7 +535,7 @@ export default function App() {
   const generateScriptContent = (
     platform: "powershell" | "cmd" | "bash",
     paths: string[],
-    isSafe: boolean
+    isSafe: boolean,
   ): string => {
     if (paths.length === 0) {
       return "# Henüz silinecek dosya seçilmedi.\n# Lütfen listeden dosyaları işaretleyin veya 'İlkini Tut, Kalanları Seç' butonuna tıklayın.";
@@ -602,10 +630,18 @@ export default function App() {
         ];
         paths.forEach((p) => {
           const drv = p.substring(0, 2);
-          lines.push(`if not exist "${drv}\\_SILINECEK_KOPYALAR" mkdir "${drv}\\_SILINECEK_KOPYALAR" >nul 2>&1`);
-          lines.push(`move /y "${p}" "${drv}\\_SILINECEK_KOPYALAR\\" >nul 2>&1 && echo [OK] ${p} || echo [HATA] ${p}`);
+          lines.push(
+            `if not exist "${drv}\\_SILINECEK_KOPYALAR" mkdir "${drv}\\_SILINECEK_KOPYALAR" >nul 2>&1`,
+          );
+          lines.push(
+            `move /y "${p}" "${drv}\\_SILINECEK_KOPYALAR\\" >nul 2>&1 && echo [OK] ${p} || echo [HATA] ${p}`,
+          );
         });
-        lines.push(`echo.`, `echo İşlem tamamlandı. Dosyalar _SILINECEK_KOPYALAR klasörüne taşındı.`, `pause`);
+        lines.push(
+          `echo.`,
+          `echo İşlem tamamlandı. Dosyalar _SILINECEK_KOPYALAR klasörüne taşındı.`,
+          `pause`,
+        );
         return lines.join("\n");
       } else {
         const lines = [
@@ -621,7 +657,9 @@ export default function App() {
           `echo.`,
         ];
         paths.forEach((p) => {
-          lines.push(`del /f /q "${p}" 2>nul && echo [SILINDI] ${p} || echo [BULUNAMADI/HATA] ${p}`);
+          lines.push(
+            `del /f /q "${p}" 2>nul && echo [SILINDI] ${p} || echo [BULUNAMADI/HATA] ${p}`,
+          );
         });
         lines.push(`echo.`, `echo Tamamlandı.`, `pause`);
         return lines.join("\n");
@@ -641,16 +679,18 @@ export default function App() {
       if (isSafe) {
         lines.push(
           `mkdir -p "./_SILINECEK_KOPYALAR"`,
-          `echo "Dosyalar ./_SILINECEK_KOPYALAR klasörüne taşınıyor..."`
+          `echo "Dosyalar ./_SILINECEK_KOPYALAR klasörüne taşınıyor..."`,
         );
         paths.forEach((p) => {
           const posix = p.replace(/\\/g, "/");
-          lines.push(`mv -f "${posix}" "./_SILINECEK_KOPYALAR/" 2>/dev/null || true`);
+          lines.push(
+            `mv -f "${posix}" "./_SILINECEK_KOPYALAR/" 2>/dev/null || true`,
+          );
         });
       } else {
         lines.push(
           `read -p "Dosyaları kalıcı olarak silmek istiyor musunuz? (e/h): " onay`,
-          `if [[ "$onay" != "e" && "$onay" != "E" ]]; then echo "İptal edildi."; exit 0; fi`
+          `if [[ "$onay" != "e" && "$onay" != "E" ]]; then echo "İptal edildi."; exit 0; fi`,
         );
         paths.forEach((p) => {
           const posix = p.replace(/\\/g, "/");
@@ -668,7 +708,7 @@ export default function App() {
     const text = generateScriptContent(
       duplicatePlatform,
       selectedDuplicatePaths,
-      isDuplicateSafeMode
+      isDuplicateSafeMode,
     );
     try {
       await navigator.clipboard.writeText(text);
@@ -683,14 +723,13 @@ export default function App() {
     const text = generateScriptContent(
       duplicatePlatform,
       selectedDuplicatePaths,
-      isDuplicateSafeMode
+      isDuplicateSafeMode,
     );
-    const ext =
-      duplicatePlatform === "powershell"
-        ? "ps1"
-        : duplicatePlatform === "cmd"
-        ? "bat"
-        : "sh";
+    const ext = duplicatePlatform === "powershell"
+      ? "ps1"
+      : duplicatePlatform === "cmd"
+      ? "bat"
+      : "sh";
     const filename = `kopya_temizle_${duplicatePlatform}.${ext}`;
 
     const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
@@ -704,12 +743,17 @@ export default function App() {
     URL.revokeObjectURL(url);
   };
 
-  // Navigate to directory
+  // Navigate to directory and sync active scan targets to selected drive/folder
   const changeDirectory = (newPath: string) => {
     if (!newPath || !newPath.trim()) return;
-    const clean = newPath.trim();
+    let clean = newPath.trim();
+    if (/^[a-zA-Z]:$/.test(clean)) {
+      clean = clean.toUpperCase() + "\\";
+    }
     setBaseDir(clean);
     setPathInput(clean);
+    setRunnerSourceDir(clean);
+    setScannerDrives([clean]);
     setIsEditingPath(false);
     setRecentFolders((prev) => {
       const next = [
@@ -736,6 +780,8 @@ export default function App() {
         if (res.targetDir && res.targetDir !== baseDir) {
           setBaseDir(res.targetDir);
           setPathInput(res.targetDir);
+          setRunnerSourceDir(res.targetDir);
+          setScannerDrives([res.targetDir]);
         }
       }
     } catch (err) {
@@ -891,7 +937,7 @@ export default function App() {
       case ".doc":
       case ".docx":
       case ".txt":
-        return 
+        return;
         <FileText className="w-8 h-8 text-blue-500 dark:text-blue-400" />;
       case ".xls":
       case ".xlsx":
@@ -1271,14 +1317,29 @@ export default function App() {
 
                   {/* Drive Grid */}
                   <div className="grid grid-cols-3 gap-1.5 mb-2">
-                    {(systemDrives.length > 0
-                      ? systemDrives
-                      : [
-                        { letter: "C", path: "C:\\", label: "C: (Sistem)", isReady: true },
-                        { letter: "D", path: "D:\\", label: "D: (Depo)", isReady: true },
-                        { letter: "E", path: "E:\\", label: "E: (Arşiv)", isReady: true },
-                      ]).map((d) => {
-                      const isCurrent = baseDir.toUpperCase().startsWith(d.letter.toUpperCase() + ":");
+                    {(systemDrives.length > 0 ? systemDrives : [
+                      {
+                        letter: "C",
+                        path: "C:\\",
+                        label: "C: (Sistem)",
+                        isReady: true,
+                      },
+                      {
+                        letter: "D",
+                        path: "D:\\",
+                        label: "D: (Depo)",
+                        isReady: true,
+                      },
+                      {
+                        letter: "E",
+                        path: "E:\\",
+                        label: "E: (Arşiv)",
+                        isReady: true,
+                      },
+                    ]).map((d) => {
+                      const isCurrent = baseDir.toUpperCase().startsWith(
+                        d.letter.toUpperCase() + ":",
+                      );
                       return (
                         <button
                           key={d.letter}
@@ -1291,11 +1352,30 @@ export default function App() {
                           title={d.label || `${d.letter}: Sürücüsü`}
                         >
                           <div className="flex items-center justify-between w-full">
-                            <span className="text-xs font-mono font-bold tracking-tight">{d.letter}:</span>
-                            <span className={`w-1.5 h-1.5 rounded-full ${isCurrent ? "bg-white animate-pulse" : "bg-slate-300 dark:bg-gray-600"}`} />
+                            <span className="text-xs font-mono font-bold tracking-tight">
+                              {d.letter}:
+                            </span>
+                            <span
+                              className={`w-1.5 h-1.5 rounded-full ${
+                                isCurrent
+                                  ? "bg-white animate-pulse"
+                                  : "bg-slate-300 dark:bg-gray-600"
+                              }`}
+                            />
                           </div>
-                          <span className={`text-[9px] truncate w-full ${isCurrent ? "text-indigo-100" : "text-slate-400 dark:text-gray-400"}`}>
-                            {d.label ? d.label.replace(/\([A-Z]:\)/i, "").trim().slice(0, 8) : "Yerel Disk"}
+                          <span
+                            className={`text-[9px] truncate w-full ${
+                              isCurrent
+                                ? "text-indigo-100"
+                                : "text-slate-400 dark:text-gray-400"
+                            }`}
+                          >
+                            {d.label
+                              ? d.label.replace(/\([A-Z]:\)/i, "").trim().slice(
+                                0,
+                                8,
+                              )
+                              : "Yerel Disk"}
                           </span>
                         </button>
                       );
@@ -1305,10 +1385,14 @@ export default function App() {
                   {/* Recent Folders Quick Badges */}
                   {recentFolders.length > 0 && (
                     <div className="flex items-center gap-1 overflow-x-auto no-scrollbar pt-1">
-                      <span className="text-[9px] text-slate-400 dark:text-gray-400 uppercase font-bold shrink-0">Son:</span>
+                      <span className="text-[9px] text-slate-400 dark:text-gray-400 uppercase font-bold shrink-0">
+                        Son:
+                      </span>
                       {recentFolders.slice(0, 4).map((rf) => {
-                        const label = rf.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || rf;
-                        const isCurrent = baseDir.toLowerCase() === rf.toLowerCase();
+                        const label =
+                          rf.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || rf;
+                        const isCurrent =
+                          baseDir.toLowerCase() === rf.toLowerCase();
                         return (
                           <button
                             key={rf}
@@ -1336,11 +1420,17 @@ export default function App() {
                       Kategori Perspektifi
                     </span>
                     <span className="text-[10px] text-slate-400 dark:text-gray-400 font-mono">
-                      {perspective === "topics" && `${analysis.smartTopics.length} konu`}
-                      {perspective === "folders" && `${(realSubfolders.length || analysis.realFolders.length)} klasör`}
-                      {perspective === "years" && `${analysis.yearClusters.length} yıl`}
-                      {perspective === "formats" && `${analysis.formatClusters.length} tür`}
-                      {perspective === "preset" && `${PRESET_MUNICIPAL_TOPICS.length} şablon`}
+                      {perspective === "topics" &&
+                        `${analysis.smartTopics.length} konu`}
+                      {perspective === "folders" &&
+                        `${(realSubfolders.length ||
+                          analysis.realFolders.length)} klasör`}
+                      {perspective === "years" &&
+                        `${analysis.yearClusters.length} yıl`}
+                      {perspective === "formats" &&
+                        `${analysis.formatClusters.length} tür`}
+                      {perspective === "preset" &&
+                        `${PRESET_MUNICIPAL_TOPICS.length} şablon`}
                     </span>
                   </div>
 
@@ -1358,7 +1448,13 @@ export default function App() {
                         <Sparkles className="w-3 h-3" />
                         <span>Konular</span>
                       </div>
-                      <span className={`text-[9px] px-1 rounded font-mono ${perspective === "topics" ? "bg-cyan-700 text-cyan-100" : "bg-slate-200/60 dark:bg-white/10 text-slate-500 dark:text-gray-400"}`}>
+                      <span
+                        className={`text-[9px] px-1 rounded font-mono ${
+                          perspective === "topics"
+                            ? "bg-cyan-700 text-cyan-100"
+                            : "bg-slate-200/60 dark:bg-white/10 text-slate-500 dark:text-gray-400"
+                        }`}
+                      >
                         {analysis.smartTopics.length}
                       </span>
                     </button>
@@ -1375,8 +1471,16 @@ export default function App() {
                         <Folder className="w-3 h-3" />
                         <span>Klasörler</span>
                       </div>
-                      <span className={`text-[9px] px-1 rounded font-mono ${perspective === "folders" ? "bg-amber-700 text-amber-100" : "bg-slate-200/60 dark:bg-white/10 text-slate-500 dark:text-gray-400"}`}>
-                        {realSubfolders.length > 0 ? realSubfolders.length : analysis.realFolders.length}
+                      <span
+                        className={`text-[9px] px-1 rounded font-mono ${
+                          perspective === "folders"
+                            ? "bg-amber-700 text-amber-100"
+                            : "bg-slate-200/60 dark:bg-white/10 text-slate-500 dark:text-gray-400"
+                        }`}
+                      >
+                        {realSubfolders.length > 0
+                          ? realSubfolders.length
+                          : analysis.realFolders.length}
                       </span>
                     </button>
 
@@ -1392,7 +1496,13 @@ export default function App() {
                         <Calendar className="w-3 h-3" />
                         <span>Zaman</span>
                       </div>
-                      <span className={`text-[9px] px-1 rounded font-mono ${perspective === "years" ? "bg-emerald-700 text-emerald-100" : "bg-slate-200/60 dark:bg-white/10 text-slate-500 dark:text-gray-400"}`}>
+                      <span
+                        className={`text-[9px] px-1 rounded font-mono ${
+                          perspective === "years"
+                            ? "bg-emerald-700 text-emerald-100"
+                            : "bg-slate-200/60 dark:bg-white/10 text-slate-500 dark:text-gray-400"
+                        }`}
+                      >
                         {analysis.yearClusters.length}
                       </span>
                     </button>
@@ -1409,7 +1519,13 @@ export default function App() {
                         <Layers className="w-3 h-3" />
                         <span>Türler</span>
                       </div>
-                      <span className={`text-[9px] px-1 rounded font-mono ${perspective === "formats" ? "bg-purple-700 text-purple-100" : "bg-slate-200/60 dark:bg-white/10 text-slate-500 dark:text-gray-400"}`}>
+                      <span
+                        className={`text-[9px] px-1 rounded font-mono ${
+                          perspective === "formats"
+                            ? "bg-purple-700 text-purple-100"
+                            : "bg-slate-200/60 dark:bg-white/10 text-slate-500 dark:text-gray-400"
+                        }`}
+                      >
                         {analysis.formatClusters.length}
                       </span>
                     </button>
@@ -1427,7 +1543,13 @@ export default function App() {
                         <FolderKanban className="w-3 h-3" />
                         <span>Kurumsal Şablon</span>
                       </div>
-                      <span className={`text-[9px] px-1.5 rounded font-mono ${perspective === "preset" ? "bg-indigo-700 text-indigo-100" : "bg-slate-200/60 dark:bg-white/10 text-slate-500 dark:text-gray-400"}`}>
+                      <span
+                        className={`text-[9px] px-1.5 rounded font-mono ${
+                          perspective === "preset"
+                            ? "bg-indigo-700 text-indigo-100"
+                            : "bg-slate-200/60 dark:bg-white/10 text-slate-500 dark:text-gray-400"
+                        }`}
+                      >
                         {PRESET_MUNICIPAL_TOPICS.length} kategori
                       </span>
                     </button>
@@ -1441,17 +1563,15 @@ export default function App() {
                     type="text"
                     value={sidebarFilterText}
                     onChange={(e) => setSidebarFilterText(e.target.value)}
-                    placeholder={
-                      perspective === "topics"
-                        ? "Konularda filtrele..."
-                        : perspective === "folders"
-                        ? "Klasörlerde filtrele..."
-                        : perspective === "years"
-                        ? "Yıllarda filtrele..."
-                        : perspective === "formats"
-                        ? "Format / tür filtrele..."
-                        : "Kurumsal şablonda filtrele..."
-                    }
+                    placeholder={perspective === "topics"
+                      ? "Konularda filtrele..."
+                      : perspective === "folders"
+                      ? "Klasörlerde filtrele..."
+                      : perspective === "years"
+                      ? "Yıllarda filtrele..."
+                      : perspective === "formats"
+                      ? "Format / tür filtrele..."
+                      : "Kurumsal şablonda filtrele..."}
                     className="w-full bg-slate-100 dark:bg-[#141d30] border border-slate-200 dark:border-white/10 rounded-xl pl-8 pr-7 py-1.5 text-xs text-slate-900 dark:text-gray-100 placeholder-slate-400 dark:placeholder-gray-400 focus:outline-none focus:border-indigo-500 transition"
                   />
                   {sidebarFilterText && (
@@ -1517,52 +1637,67 @@ export default function App() {
                       </div>
                       {sidebarFilterText && (
                         <span className="text-[9px] text-slate-400 font-mono">
-                          {analysis.smartTopics.filter((t) => t.label.toLowerCase().includes(sidebarFilterText.toLowerCase())).length} / {analysis.smartTopics.length}
+                          {analysis.smartTopics.filter((t) =>
+                            t.label.toLowerCase().includes(
+                              sidebarFilterText.toLowerCase(),
+                            )
+                          ).length} / {analysis.smartTopics.length}
                         </span>
                       )}
                     </div>
-                    {analysis.smartTopics.length === 0 ? (
-                      <p className="text-xs text-slate-500 dark:text-gray-400 italic p-2 text-center">
-                        Tekrarlayan konu anahtarı tespit edilemedi.
-                      </p>
-                    ) : (
-                      analysis.smartTopics
-                        .filter((topic) =>
-                          !sidebarFilterText.trim() ||
-                          topic.label.toLowerCase().includes(sidebarFilterText.toLowerCase())
-                        )
-                        .map((topic) => {
-                          const isActive = activeFilter?.type === "topic" && activeFilter.value === topic.label;
-                          return (
-                            <button
-                              key={topic.id}
-                              onClick={() =>
-                                setActiveFilter(
-                                  isActive
-                                    ? null
-                                    : {
+                    {analysis.smartTopics.length === 0
+                      ? (
+                        <p className="text-xs text-slate-500 dark:text-gray-400 italic p-2 text-center">
+                          Tekrarlayan konu anahtarı tespit edilemedi.
+                        </p>
+                      )
+                      : (
+                        analysis.smartTopics
+                          .filter((topic) =>
+                            !sidebarFilterText.trim() ||
+                            topic.label.toLowerCase().includes(
+                              sidebarFilterText.toLowerCase(),
+                            )
+                          )
+                          .map((topic) => {
+                            const isActive = activeFilter?.type === "topic" &&
+                              activeFilter.value === topic.label;
+                            return (
+                              <button
+                                key={topic.id}
+                                onClick={() =>
+                                  setActiveFilter(
+                                    isActive ? null : {
                                       type: "topic",
                                       value: topic.label,
                                       label: `Konu: ${topic.label}`,
                                     },
-                                )}
-                              className={`w-full text-left px-2.5 py-1.5 rounded-xl text-xs flex items-center justify-between transition border ${
-                                isActive
-                                  ? "bg-cyan-50 dark:bg-cyan-600/30 text-cyan-900 dark:text-cyan-200 font-bold border-cyan-300 dark:border-cyan-500/40 shadow-xs"
-                                  : "bg-transparent text-slate-700 dark:text-gray-300 border-transparent hover:bg-slate-100 dark:hover:bg-white/5 hover:text-slate-900 dark:hover:text-white"
-                              }`}
-                            >
-                              <div className="flex items-center gap-2 truncate">
-                                <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${isActive ? "bg-cyan-600 dark:bg-cyan-400 ring-2 ring-cyan-400/30" : "bg-cyan-500"}`} />
-                                <span className="truncate">{topic.label}</span>
-                              </div>
-                              <span className="text-[10px] px-1.5 py-0.2 rounded-md bg-slate-200/60 dark:bg-white/10 text-slate-600 dark:text-gray-400 font-mono">
-                                {topic.count}
-                              </span>
-                            </button>
-                          );
-                        })
-                    )}
+                                  )}
+                                className={`w-full text-left px-2.5 py-1.5 rounded-xl text-xs flex items-center justify-between transition border ${
+                                  isActive
+                                    ? "bg-cyan-50 dark:bg-cyan-600/30 text-cyan-900 dark:text-cyan-200 font-bold border-cyan-300 dark:border-cyan-500/40 shadow-xs"
+                                    : "bg-transparent text-slate-700 dark:text-gray-300 border-transparent hover:bg-slate-100 dark:hover:bg-white/5 hover:text-slate-900 dark:hover:text-white"
+                                }`}
+                              >
+                                <div className="flex items-center gap-2 truncate">
+                                  <span
+                                    className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                                      isActive
+                                        ? "bg-cyan-600 dark:bg-cyan-400 ring-2 ring-cyan-400/30"
+                                        : "bg-cyan-500"
+                                    }`}
+                                  />
+                                  <span className="truncate">
+                                    {topic.label}
+                                  </span>
+                                </div>
+                                <span className="text-[10px] px-1.5 py-0.2 rounded-md bg-slate-200/60 dark:bg-white/10 text-slate-600 dark:text-gray-400 font-mono">
+                                  {topic.count}
+                                </span>
+                              </button>
+                            );
+                          })
+                      )}
                   </div>
                 )}
 
@@ -1576,33 +1711,42 @@ export default function App() {
                       </div>
                       {sidebarFilterText && (
                         <span className="text-[9px] text-slate-400 font-mono">
-                          {(realSubfolders.length > 0 ? realSubfolders : analysis.realFolders).filter((f: any) =>
-                            (f.name || f.label || "").toLowerCase().includes(sidebarFilterText.toLowerCase())
-                          ).length} adet
+                          {(realSubfolders.length > 0
+                            ? realSubfolders
+                            : analysis.realFolders).filter((f: any) =>
+                              (f.name || f.label || "").toLowerCase().includes(
+                                sidebarFilterText.toLowerCase(),
+                              )
+                            ).length} adet
                         </span>
                       )}
                     </div>
-                    {(realSubfolders.length > 0 ? realSubfolders : analysis.realFolders)
+                    {(realSubfolders.length > 0
+                      ? realSubfolders
+                      : analysis.realFolders)
                       .filter((f: any) =>
                         !sidebarFilterText.trim() ||
-                        (f.name || f.label || "").toLowerCase().includes(sidebarFilterText.toLowerCase())
+                        (f.name || f.label || "").toLowerCase().includes(
+                          sidebarFilterText.toLowerCase(),
+                        )
                       )
                       .map((f: any) => {
                         const name = f.name || f.label;
-                        const isActive = activeFilter?.type === "folder" && activeFilter.value === name;
-                        const count = f.fileCount !== undefined ? f.fileCount : f.count;
+                        const isActive = activeFilter?.type === "folder" &&
+                          activeFilter.value === name;
+                        const count = f.fileCount !== undefined
+                          ? f.fileCount
+                          : f.count;
                         return (
                           <button
                             key={name}
                             onClick={() =>
                               setActiveFilter(
-                                isActive
-                                  ? null
-                                  : {
-                                    type: "folder",
-                                    value: name,
-                                    label: `Klasör: ${name}`,
-                                  },
+                                isActive ? null : {
+                                  type: "folder",
+                                  value: name,
+                                  label: `Klasör: ${name}`,
+                                },
                               )}
                             className={`w-full text-left px-2.5 py-1.5 rounded-xl text-xs flex items-center justify-between transition border ${
                               isActive
@@ -1635,23 +1779,23 @@ export default function App() {
                     {analysis.yearClusters
                       .filter((cluster) =>
                         !sidebarFilterText.trim() ||
-                        String(cluster.badge || cluster.label).toLowerCase().includes(sidebarFilterText.toLowerCase())
+                        String(cluster.badge || cluster.label).toLowerCase()
+                          .includes(sidebarFilterText.toLowerCase())
                       )
                       .map((cluster) => {
                         const yr = cluster.badge || cluster.label;
-                        const isActive = activeFilter?.type === "year" && activeFilter.value === yr;
+                        const isActive = activeFilter?.type === "year" &&
+                          activeFilter.value === yr;
                         return (
                           <button
                             key={cluster.id}
                             onClick={() =>
                               setActiveFilter(
-                                isActive
-                                  ? null
-                                  : {
-                                    type: "year",
-                                    value: yr,
-                                    label: `${yr} Yılı Belgeleri`,
-                                  },
+                                isActive ? null : {
+                                  type: "year",
+                                  value: yr,
+                                  label: `${yr} Yılı Belgeleri`,
+                                },
                               )}
                             className={`w-full text-left px-2.5 py-1.5 rounded-xl text-xs flex items-center justify-between transition border ${
                               isActive
@@ -1684,22 +1828,23 @@ export default function App() {
                     {analysis.formatClusters
                       .filter((cluster) =>
                         !sidebarFilterText.trim() ||
-                        cluster.label.toLowerCase().includes(sidebarFilterText.toLowerCase())
+                        cluster.label.toLowerCase().includes(
+                          sidebarFilterText.toLowerCase(),
+                        )
                       )
                       .map((cluster) => {
-                        const isActive = activeFilter?.type === "format" && activeFilter.value === cluster.id;
+                        const isActive = activeFilter?.type === "format" &&
+                          activeFilter.value === cluster.id;
                         return (
                           <button
                             key={cluster.id}
                             onClick={() =>
                               setActiveFilter(
-                                isActive
-                                  ? null
-                                  : {
-                                    type: "format",
-                                    value: cluster.id,
-                                    label: cluster.label,
-                                  },
+                                isActive ? null : {
+                                  type: "format",
+                                  value: cluster.id,
+                                  label: cluster.label,
+                                },
                               )}
                             className={`w-full text-left px-2.5 py-1.5 rounded-xl text-xs flex items-center justify-between transition border ${
                               isActive
@@ -1732,22 +1877,23 @@ export default function App() {
                     {PRESET_MUNICIPAL_TOPICS
                       .filter((topic) =>
                         !sidebarFilterText.trim() ||
-                        topic.toLowerCase().includes(sidebarFilterText.toLowerCase())
+                        topic.toLowerCase().includes(
+                          sidebarFilterText.toLowerCase(),
+                        )
                       )
                       .map((topic) => {
-                        const isActive = activeFilter?.type === "preset" && activeFilter.value === topic;
+                        const isActive = activeFilter?.type === "preset" &&
+                          activeFilter.value === topic;
                         return (
                           <button
                             key={topic}
                             onClick={() =>
                               setActiveFilter(
-                                isActive
-                                  ? null
-                                  : {
-                                    type: "preset",
-                                    value: topic,
-                                    label: `Şablon: ${topic}`,
-                                  },
+                                isActive ? null : {
+                                  type: "preset",
+                                  value: topic,
+                                  label: `Şablon: ${topic}`,
+                                },
                               )}
                             className={`w-full text-left px-2.5 py-1.5 rounded-xl text-xs truncate flex items-center gap-2 transition border ${
                               isActive
@@ -1780,25 +1926,28 @@ export default function App() {
                     )}
                   </div>
                   <div className="flex flex-wrap gap-1.5">
-                    {allUniqueTags.length === 0 ? (
-                      <p className="text-[11px] text-slate-400 dark:text-gray-500 italic">
-                        Henüz etiket eklenmedi.
-                      </p>
-                    ) : (
-                      allUniqueTags.map((t) => (
-                        <button
-                          key={t}
-                          onClick={() => setSelectedTag(selectedTag === t ? null : t)}
-                          className={`text-[11px] px-2 py-0.5 rounded-full border transition flex items-center gap-1 font-medium ${
-                            selectedTag === t
-                              ? "bg-cyan-600 text-white border-cyan-500 shadow-xs"
-                              : getTagClass(t, theme)
-                          }`}
-                        >
-                          #{t}
-                        </button>
-                      ))
-                    )}
+                    {allUniqueTags.length === 0
+                      ? (
+                        <p className="text-[11px] text-slate-400 dark:text-gray-500 italic">
+                          Henüz etiket eklenmedi.
+                        </p>
+                      )
+                      : (
+                        allUniqueTags.map((t) => (
+                          <button
+                            key={t}
+                            onClick={() =>
+                              setSelectedTag(selectedTag === t ? null : t)}
+                            className={`text-[11px] px-2 py-0.5 rounded-full border transition flex items-center gap-1 font-medium ${
+                              selectedTag === t
+                                ? "bg-cyan-600 text-white border-cyan-500 shadow-xs"
+                                : getTagClass(t, theme)
+                            }`}
+                          >
+                            #{t}
+                          </button>
+                        ))
+                      )}
                   </div>
                 </div>
               </div>
@@ -1946,15 +2095,17 @@ export default function App() {
                   </div>
 
                   <button
+                    disabled={!!runningTaskId}
                     onClick={() => {
                       setRunnerSourceDir(baseDir);
-                      setActiveTab("runner");
+                      setScannerDrives([baseDir]);
+                      runScript("scanner", "scanner.py", [baseDir]);
                     }}
-                    className="px-2.5 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/60 font-semibold text-[11px] flex items-center gap-1 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 transition shadow-2xs"
-                    title="Bu klasörü Python Motoruna aktar ve derin analiz / birleştirme yap"
+                    className="px-2.5 py-1 rounded-lg bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 text-white font-semibold text-[11px] flex items-center gap-1.5 transition shadow-xs"
+                    title={`Seçili diski/dizini (${baseDir}) doğrudan scanner.py ile tara`}
                   >
-                    <Terminal className="w-3 h-3 text-indigo-500" />
-                    Python ile Tara
+                    <Play className="w-3 h-3" />
+                    <span>Bu Diski / Dizini Tara ({baseDir})</span>
                   </button>
                 </div>
               </div>
@@ -2337,15 +2488,19 @@ export default function App() {
                 </div>
                 {/* Source Quick Drive Selection */}
                 <div className="flex items-center gap-1 mt-1.5">
-                  <span className="text-[10px] text-slate-400 dark:text-gray-500">Hızlı:</span>
+                  <span className="text-[10px] text-slate-400 dark:text-gray-500">
+                    Hızlı:
+                  </span>
                   {systemDrives.map((d) => (
                     <button
-                      key={'src-' + d.path}
+                      key={"src-" + d.path}
                       onClick={() => setRunnerSourceDir(d.path)}
                       className={`px-1.5 py-0.5 rounded text-[10px] font-mono border transition ${
-                        runnerSourceDir.toLowerCase().startsWith(d.letter.toLowerCase() + ':')
-                          ? 'bg-cyan-500/20 text-cyan-400 border-cyan-500/40 font-bold'
-                          : 'border-slate-200 dark:border-white/10 text-slate-500 hover:bg-white/5'
+                        runnerSourceDir.toLowerCase().startsWith(
+                            d.letter.toLowerCase() + ":",
+                          )
+                          ? "bg-cyan-500/20 text-cyan-400 border-cyan-500/40 font-bold"
+                          : "border-slate-200 dark:border-white/10 text-slate-500 hover:bg-white/5"
                       }`}
                     >
                       {d.letter}:
@@ -2384,15 +2539,19 @@ export default function App() {
                 </div>
                 {/* Target Quick Drive Selection */}
                 <div className="flex items-center gap-1 mt-1.5">
-                  <span className="text-[10px] text-slate-400 dark:text-gray-500">Hızlı:</span>
+                  <span className="text-[10px] text-slate-400 dark:text-gray-500">
+                    Hızlı:
+                  </span>
                   {systemDrives.map((d) => (
                     <button
-                      key={'tgt-' + d.path}
+                      key={"tgt-" + d.path}
                       onClick={() => setRunnerTargetDir(d.path)}
                       className={`px-1.5 py-0.5 rounded text-[10px] font-mono border transition ${
-                        runnerTargetDir.toLowerCase().startsWith(d.letter.toLowerCase() + ':')
-                          ? 'bg-amber-500/20 text-amber-400 border-amber-500/40 font-bold'
-                          : 'border-slate-200 dark:border-white/10 text-slate-500 hover:bg-white/5'
+                        runnerTargetDir.toLowerCase().startsWith(
+                            d.letter.toLowerCase() + ":",
+                          )
+                          ? "bg-amber-500/20 text-amber-400 border-amber-500/40 font-bold"
+                          : "border-slate-200 dark:border-white/10 text-slate-500 hover:bg-white/5"
                       }`}
                     >
                       {d.letter}:
@@ -2447,7 +2606,8 @@ export default function App() {
                   </span>
                 </div>
                 <p className="text-xs text-slate-600 dark:text-gray-400 leading-relaxed mb-2.5">
-                  Seçilen sürücülerdeki birebir eşleşen kopyaları SHA-256 hash ile doğrular ve rapor üretir.
+                  Seçilen sürücülerdeki birebir eşleşen kopyaları SHA-256 hash
+                  ile doğrular ve rapor üretir.
                 </p>
 
                 {/* Sürücü Seçim Alanı */}
@@ -2457,22 +2617,20 @@ export default function App() {
                     <div className="flex gap-2 text-[10px]">
                       <button
                         type="button"
-                        onClick={() => {
-                          const de = systemDrives
-                            .filter(d => ['D', 'E'].includes(d.letter.toUpperCase()))
-                            .map(d => d.path);
-                          setScannerDrives(de.length > 0 ? de : ['D:\\', 'E:\\']);
-                        }}
+                        onClick={() => setScannerDrives([baseDir])}
                         className="text-cyan-600 dark:text-cyan-400 hover:underline font-bold"
                       >
-                        D: + E:
+                        Aktif Dizin ({baseDir})
                       </button>
                       <button
                         type="button"
-                        onClick={() => setScannerDrives([runnerSourceDir])}
+                        onClick={() => {
+                          const all = systemDrives.map((d) => d.path);
+                          if (all.length > 0) setScannerDrives(all);
+                        }}
                         className="text-slate-500 hover:underline"
                       >
-                        Sadece {runnerSourceDir}
+                        Tüm Sürücüler
                       </button>
                     </div>
                   </div>
@@ -2481,12 +2639,14 @@ export default function App() {
                       const isSelected = scannerDrives.includes(d.path);
                       return (
                         <button
-                          key={'scan-drv-' + d.path}
+                          key={"scan-drv-" + d.path}
                           type="button"
                           onClick={() => {
                             if (isSelected) {
                               if (scannerDrives.length > 1) {
-                                setScannerDrives(scannerDrives.filter((p) => p !== d.path));
+                                setScannerDrives(
+                                  scannerDrives.filter((p) => p !== d.path),
+                                );
                               }
                             } else {
                               setScannerDrives([...scannerDrives, d.path]);
@@ -2494,20 +2654,40 @@ export default function App() {
                           }}
                           className={`px-2.5 py-1 rounded text-xs font-mono font-bold border transition flex items-center gap-1.5 ${
                             isSelected
-                              ? 'bg-cyan-500/20 text-cyan-400 border-cyan-500/40 shadow-xs'
-                              : 'border-slate-200 dark:border-white/10 text-slate-400 hover:bg-white/5'
+                              ? "bg-cyan-500/20 text-cyan-400 border-cyan-500/40 shadow-xs"
+                              : "border-slate-200 dark:border-white/10 text-slate-400 hover:bg-white/5"
                           }`}
                         >
-                          <span className={isSelected ? 'text-cyan-400 font-black' : 'text-slate-400'}>
-                            {isSelected ? '☑' : '☐'}
+                          <span
+                            className={isSelected
+                              ? "text-cyan-400 font-black"
+                              : "text-slate-400"}
+                          >
+                            {isSelected ? "☑" : "☐"}
                           </span>
                           <span>{d.letter}:</span>
-                          <span className="text-[10px] font-normal opacity-70">
-                            {d.letter === 'D' ? '(417GB)' : d.letter === 'E' ? '(8GB)' : ''}
-                          </span>
+                          {d.sizeText && (
+                            <span className="text-[10px] font-normal opacity-70">
+                              ({d.sizeText})
+                            </span>
+                          )}
                         </button>
                       );
                     })}
+                    {!systemDrives.some((d) => d.path.toLowerCase() === runnerSourceDir.toLowerCase()) && (
+                      <button
+                        type="button"
+                        onClick={() => setScannerDrives([runnerSourceDir])}
+                        className={`px-2.5 py-1 rounded text-xs font-mono font-bold border transition flex items-center gap-1.5 ${
+                          scannerDrives.includes(runnerSourceDir)
+                            ? "bg-cyan-500/20 text-cyan-400 border-cyan-500/40 shadow-xs"
+                            : "border-slate-200 dark:border-white/10 text-slate-400 hover:bg-white/5"
+                        }`}
+                      >
+                        <span>{scannerDrives.includes(runnerSourceDir) ? "☑" : "☐"}</span>
+                        <span className="truncate max-w-[160px]">{runnerSourceDir}</span>
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -2519,7 +2699,9 @@ export default function App() {
               >
                 <Play className="w-3.5 h-3.5" />
                 <span>
-                  {scannerDrives.map(p => p.replace(/\\$/, '')).join(' + ')} Tara ({scannerDrives.length} Sürücü)
+                  {scannerDrives.map((p) => p.replace(/\\$/, "")).join(" + ")}
+                  {" "}
+                  Tara
                 </span>
               </button>
             </div>
@@ -2659,10 +2841,20 @@ export default function App() {
       {activeTab === "reports" && (
         <div className="flex-1 p-6 overflow-y-auto bg-slate-50 dark:bg-[#080c18] transition-colors">
           <div className="max-w-5xl mx-auto space-y-6">
-            <h2 className="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
-              <BarChart2 className="w-5 h-5 text-indigo-500" />
-              Sistem Analiz ve Göç Raporları
-            </h2>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h2 className="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                <BarChart2 className="w-5 h-5 text-indigo-500" />
+                Sistem Analiz ve Göç Raporları
+              </h2>
+              <button
+                disabled={!!runningTaskId}
+                onClick={() => runScript("scanner", "scanner.py", [baseDir])}
+                className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 text-white text-xs font-bold rounded-xl shadow-md flex items-center gap-2 transition"
+              >
+                <Play className="w-3.5 h-3.5" />
+                <span>Seçili Diski / Dizini Şimdi Tara ({baseDir})</span>
+              </button>
+            </div>
 
             {/* Quick Stats Cards */}
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
@@ -2671,11 +2863,12 @@ export default function App() {
                   Taranan Toplam Dosya
                 </span>
                 <p className="text-2xl font-black text-cyan-600 dark:text-cyan-400 mt-1 font-mono">
-                  {reports?.duplicate?.summary?.total_files_scanned ||
-                    reports?.migration?.summary?.total_files_scanned || "6.429"}
+                  {reports?.duplicate?.summary?.total_files_scanned ??
+                    reports?.migration?.summary?.total_files_scanned ??
+                    0}
                 </p>
-                <span className="text-[11px] text-slate-400 dark:text-gray-500">
-                  Kaynak Dizin ({runnerSourceDir})
+                <span className="text-[11px] text-slate-400 dark:text-gray-500 truncate block" title={(reports?.duplicate?.summary?.scanned_drives || [baseDir]).join(", ")}>
+                  Taranan: {(reports?.duplicate?.summary?.scanned_drives || [baseDir]).join(", ")}
                 </span>
               </div>
 
@@ -2684,10 +2877,10 @@ export default function App() {
                   Mükerrer Dosya Grubu
                 </span>
                 <p className="text-2xl font-black text-amber-600 dark:text-amber-400 mt-1 font-mono">
-                  {reports?.duplicate?.summary?.duplicate_groups_count || "737"}
+                  {reports?.duplicate?.summary?.duplicate_groups_count ?? 0}
                 </p>
                 <span className="text-[11px] text-slate-400 dark:text-gray-500">
-                  Birebir aynı içerik
+                  Birebir aynı içerik (SHA-256)
                 </span>
               </div>
 
@@ -2696,8 +2889,7 @@ export default function App() {
                   Kurtarılan Alan
                 </span>
                 <p className="text-2xl font-black text-emerald-600 dark:text-emerald-400 mt-1 font-mono">
-                  {reports?.duplicate?.summary?.total_wasted_formatted ||
-                    "2.09 GB"}
+                  {reports?.duplicate?.summary?.total_wasted_formatted || "0 B"}
                 </p>
                 <span className="text-[11px] text-slate-400 dark:text-gray-500">
                   Tekilleştirme tasarrufu
@@ -2709,7 +2901,7 @@ export default function App() {
                   Kısaltılan Uzun Yollar
                 </span>
                 <p className="text-2xl font-black text-rose-600 dark:text-rose-400 mt-1 font-mono">
-                  {reports?.migration?.summary?.shortened_paths_count || "286"}
+                  {reports?.migration?.summary?.shortened_paths_count ?? 0}
                 </p>
                 <span className="text-[11px] text-slate-400 dark:text-gray-500">
                   Windows MAX_PATH koruması
@@ -2726,12 +2918,15 @@ export default function App() {
                     Mükerrer Dosya Ayıklama & Otomatik Komut Betiği Oluşturucu
                   </h3>
                   <p className="text-xs text-slate-500 dark:text-gray-400 mt-1">
-                    Silmek istediğiniz kopyaları işaretleyin; PowerShell, CMD veya macOS/Linux için kopyala-yapıştır komut betiğinizi anında oluşturun.
+                    Silmek istediğiniz kopyaları işaretleyin; PowerShell, CMD
+                    veya macOS/Linux için kopyala-yapıştır komut betiğinizi
+                    anında oluşturun.
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="px-3 py-1 rounded-full text-xs font-semibold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
-                    {selectedDuplicatePaths.length} kopya seçili ({selectedSizeFormatted})
+                    {selectedDuplicatePaths.length}{" "}
+                    kopya seçili ({selectedSizeFormatted})
                   </span>
                   <button
                     onClick={() => checkLiveExistence()}
@@ -2739,8 +2934,16 @@ export default function App() {
                     className="px-3 py-1.5 rounded-lg border border-slate-200 dark:border-white/10 hover:bg-slate-100 dark:hover:bg-white/5 text-slate-700 dark:text-gray-300 text-xs font-semibold flex items-center gap-1.5 transition"
                     title="Diskteki dosyaların anlık var olup olmadığını kontrol eder"
                   >
-                    <RefreshCw className={`w-3.5 h-3.5 ${isCheckingLive ? "animate-spin text-cyan-500" : ""}`} />
-                    <span>{isCheckingLive ? "Kontrol Ediliyor..." : "Canlı Disk Kontrolü"}</span>
+                    <RefreshCw
+                      className={`w-3.5 h-3.5 ${
+                        isCheckingLive ? "animate-spin text-cyan-500" : ""
+                      }`}
+                    />
+                    <span>
+                      {isCheckingLive
+                        ? "Kontrol Ediliyor..."
+                        : "Canlı Disk Kontrolü"}
+                    </span>
                   </button>
                   <button
                     onClick={loadReports}
@@ -2748,7 +2951,11 @@ export default function App() {
                     className="p-2 rounded-lg border border-slate-200 dark:border-white/10 hover:bg-slate-100 dark:hover:bg-white/5 text-slate-600 dark:text-gray-300 transition"
                     title="Raporu Yeniden Yükle"
                   >
-                    <RefreshCw className={`w-4 h-4 ${loadingReports ? "animate-spin" : ""}`} />
+                    <RefreshCw
+                      className={`w-4 h-4 ${
+                        loadingReports ? "animate-spin" : ""
+                      }`}
+                    />
                   </button>
                 </div>
               </div>
@@ -2759,31 +2966,40 @@ export default function App() {
                   <HardDrive className="w-4 h-4 text-amber-500 shrink-0" />
                   <div>
                     <span className="text-xs font-bold text-amber-800 dark:text-amber-300 block">
-                      ⚡ Doğrudan İşletim Sistemi Eylemleri (Terminal Gerektirmez)
+                      ⚡ Doğrudan İşletim Sistemi Eylemleri (Terminal
+                      Gerektirmez)
                     </span>
                     <span className="text-[11px] text-amber-700/80 dark:text-amber-400/80">
-                      Arayüz üzerinden tek tıkla kopyaları karantinaya taşıyabilir veya Çöp Kutusuna gönderebilirsiniz.
+                      Arayüz üzerinden tek tıkla kopyaları karantinaya
+                      taşıyabilir veya Çöp Kutusuna gönderebilirsiniz.
                     </span>
                   </div>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   <button
                     onClick={() => handleDirectMove()}
-                    disabled={selectedDuplicatePaths.length === 0 || isExecutingAction}
+                    disabled={selectedDuplicatePaths.length === 0 ||
+                      isExecutingAction}
                     className="px-3.5 py-1.5 rounded-lg text-xs font-bold bg-amber-600 hover:bg-amber-500 text-white shadow-xs transition flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
                     title="Seçilen kopyaları diskin kökündeki '_SILINECEK_KOPYALAR' klasörüne taşır"
                   >
                     <Archive className="w-3.5 h-3.5" />
-                    <span>Seçilenleri Karantinaya Taşı ({selectedDuplicatePaths.length})</span>
+                    <span>
+                      Seçilenleri Karantinaya Taşı ({selectedDuplicatePaths
+                        .length})
+                    </span>
                   </button>
                   <button
                     onClick={() => handleDirectDelete()}
-                    disabled={selectedDuplicatePaths.length === 0 || isExecutingAction}
+                    disabled={selectedDuplicatePaths.length === 0 ||
+                      isExecutingAction}
                     className="px-3.5 py-1.5 rounded-lg text-xs font-bold bg-rose-600 hover:bg-rose-500 text-white shadow-xs transition flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
                     title="Seçilen kopyaları Windows Çöp Kutusuna (Geri Dönüşüm) taşır"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
-                    <span>Çöp Kutusuna Gönder ({selectedDuplicatePaths.length})</span>
+                    <span>
+                      Çöp Kutusuna Gönder ({selectedDuplicatePaths.length})
+                    </span>
                   </button>
                 </div>
               </div>
@@ -2871,7 +3087,9 @@ export default function App() {
                       className="w-4 h-4 rounded text-indigo-600 accent-amber-500 cursor-pointer"
                     />
                     <Shield className="w-3.5 h-3.5 text-amber-500" />
-                    <span>Güvenli Mod (_SILINECEK_KOPYALAR klasörüne taşı)</span>
+                    <span>
+                      Güvenli Mod (_SILINECEK_KOPYALAR klasörüne taşı)
+                    </span>
                   </label>
                 </div>
 
@@ -2882,14 +3100,20 @@ export default function App() {
                     className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-white dark:bg-white/10 border border-slate-200 dark:border-white/10 hover:bg-slate-100 dark:hover:bg-white/15 text-slate-800 dark:text-gray-200 transition flex items-center gap-1.5"
                   >
                     <Eye className="w-4 h-4 text-cyan-500" />
-                    <span>{showScriptPreview ? "Önizlemeyi Kapat" : "Önizle"}</span>
+                    <span>
+                      {showScriptPreview ? "Önizlemeyi Kapat" : "Önizle"}
+                    </span>
                   </button>
                   <button
                     onClick={handleCopyScript}
                     className="px-4 py-1.5 rounded-lg text-xs font-bold bg-cyan-600 hover:bg-cyan-500 text-white shadow-sm transition flex items-center gap-1.5"
                   >
-                    {copiedScript ? <Check className="w-4 h-4 text-white" /> : <Copy className="w-4 h-4" />}
-                    <span>{copiedScript ? "Kopyalandı!" : "Komutları Kopyala"}</span>
+                    {copiedScript
+                      ? <Check className="w-4 h-4 text-white" />
+                      : <Copy className="w-4 h-4" />}
+                    <span>
+                      {copiedScript ? "Kopyalandı!" : "Komutları Kopyala"}
+                    </span>
                   </button>
                   <button
                     onClick={handleDownloadScript}
@@ -2905,7 +3129,10 @@ export default function App() {
               {showScriptPreview && (
                 <div className="relative rounded-xl overflow-hidden border border-slate-800 bg-[#090d16] p-4 text-xs font-mono text-cyan-300">
                   <div className="flex items-center justify-between pb-2 mb-2 border-b border-white/10 text-slate-400 text-[11px]">
-                    <span>Oluşturulan Komut Betiği ({duplicatePlatform.toUpperCase()})</span>
+                    <span>
+                      Oluşturulan Komut Betiği ({duplicatePlatform
+                        .toUpperCase()})
+                    </span>
                     <button
                       onClick={handleCopyScript}
                       className="px-2 py-1 rounded bg-white/10 hover:bg-white/20 text-white text-[10px] font-bold"
@@ -2926,7 +3153,10 @@ export default function App() {
               {/* Duplicates Accordion List */}
               <div className="space-y-3">
                 <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-bold text-slate-600 dark:text-gray-400 px-1">
-                  <span>Mükerrer Dosya Grupları ({duplicateList.length} grup tespit edildi)</span>
+                  <span>
+                    Mükerrer Dosya Grupları ({duplicateList.length}{" "}
+                    grup tespit edildi)
+                  </span>
                   <div className="flex items-center gap-2">
                     {/* View Mode Toggle: Tree vs Flat List */}
                     <div className="flex items-center gap-1 bg-slate-200 dark:bg-white/10 p-1 rounded-lg">
@@ -2958,105 +3188,276 @@ export default function App() {
                   </div>
                 </div>
 
-                {duplicateList.length === 0 ? (
-                  <div className="text-center py-10 px-4 rounded-xl border border-dashed border-slate-200 dark:border-white/10 bg-slate-50/50 dark:bg-white/[0.02]">
-                    <CheckCircle2 className="w-10 h-10 text-emerald-500 mx-auto mb-2 opacity-80" />
-                    <p className="font-semibold text-sm text-slate-800 dark:text-gray-200">
-                      Mükerrer dosya kaydı bulunamadı veya henüz tarama yapılmadı.
-                    </p>
-                    <p className="text-xs text-slate-500 dark:text-gray-400 mt-1 max-w-md mx-auto">
-                      D: ve E: disklerindeki mükerrer kopyaları tespit etmek için tek tıkla tarama başlatabilirsiniz.
-                    </p>
-                    <button
-                      disabled={!!runningTaskId}
-                      onClick={() => runScript("scanner", "scanner.py", scannerDrives.length > 0 ? scannerDrives : ["D:\\", "E:\\"])}
-                      className="mt-4 px-4 py-2 bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 text-white text-xs font-bold rounded-lg shadow-md flex items-center gap-2 mx-auto"
-                    >
-                      <Play className="w-3.5 h-3.5" /> D: ve E: Disklerini Birlikte Tara
-                    </button>
-                  </div>
-                ) : (
-                  duplicateList.slice(0, 50).map((group: any, idx: number) => {
-                    const files = group.files || [];
-                    const selInGroup = files.filter((f: any) =>
-                      selectedDuplicatePaths.includes(f.path)
-                    ).length;
-                    const allInGroupSelected = selInGroup === files.length && files.length > 0;
-                    const treeData = organizeFilesIntoTree(files);
-
-                    return (
-                      <div
-                        key={group.group_id || idx}
-                        className="rounded-xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-black/20 overflow-hidden"
+                {duplicateList.length === 0
+                  ? (
+                    <div className="text-center py-10 px-4 rounded-xl border border-dashed border-slate-200 dark:border-white/10 bg-slate-50/50 dark:bg-white/[0.02]">
+                      <CheckCircle2 className="w-10 h-10 text-emerald-500 mx-auto mb-2 opacity-80" />
+                      <p className="font-semibold text-sm text-slate-800 dark:text-gray-200">
+                        Mükerrer dosya kaydı bulunamadı veya henüz tarama
+                        yapılmadı.
+                      </p>
+                      <p className="text-xs text-slate-500 dark:text-gray-400 mt-1 max-w-md mx-auto">
+                        D: ve E: disklerindeki mükerrer kopyaları tespit etmek
+                        için tek tıkla tarama başlatabilirsiniz.
+                      </p>
+                      <button
+                        disabled={!!runningTaskId}
+                        onClick={() =>
+                          runScript(
+                            "scanner",
+                            "scanner.py",
+                            scannerDrives.length > 0
+                              ? scannerDrives
+                              : [baseDir],
+                          )}
+                        className="mt-4 px-4 py-2 bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 text-white text-xs font-bold rounded-lg shadow-md flex items-center gap-2 mx-auto"
                       >
-                        {/* Group Header */}
-                        <div className="flex flex-wrap items-center justify-between gap-3 p-3 bg-white dark:bg-white/[0.03] border-b border-slate-200 dark:border-white/5">
-                          <div className="flex items-center gap-2">
-                            <span className="font-bold text-xs text-slate-900 dark:text-white">
-                              {idx + 1}. {files[0]?.filename || "Dosya"}
-                            </span>
-                            <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-amber-50 dark:bg-amber-950/50 text-amber-600 dark:text-amber-400 border border-amber-300 dark:border-amber-800">
-                              -{group.wasted_formatted} israf
-                            </span>
-                            {allInGroupSelected && (
-                              <span className="text-[10px] px-2 py-0.5 rounded bg-rose-500 text-white font-bold">
-                                ⚠️ Tümü seçili (Orijinal kalmayacak!)
-                              </span>
-                            )}
-                          </div>
-                          <div className="flex items-center gap-3 text-[11px] text-slate-500 dark:text-gray-400">
-                            <span>Tekil: <strong className="text-slate-800 dark:text-gray-200">{group.size_formatted}</strong></span>
-                            <span>Adet: <strong className="text-slate-800 dark:text-gray-200">{group.count}</strong></span>
-                            <span className="font-mono text-[10px] bg-slate-200 dark:bg-black/40 px-1.5 py-0.5 rounded">
-                              SHA: {group.hash?.substring(0, 10)}...
-                            </span>
-                          </div>
-                        </div>
+                        <Play className="w-3.5 h-3.5" />{" "}
+                        Seçili Hedefi Şimdi Tara ({(scannerDrives.length > 0 ? scannerDrives : [baseDir]).join(" + ")})
+                      </button>
+                    </div>
+                  )
+                  : (
+                    duplicateList.slice(0, 50).map(
+                      (group: any, idx: number) => {
+                        const files = group.files || [];
+                        const selInGroup = files.filter((f: any) =>
+                          selectedDuplicatePaths.includes(f.path)
+                        ).length;
+                        const allInGroupSelected =
+                          selInGroup === files.length && files.length > 0;
+                        const treeData = organizeFilesIntoTree(files);
 
-                        {/* TREE VIEW MODE */}
-                        {duplicateViewMode === "tree" ? (
-                          <div className="p-2.5 space-y-3">
-                            {/* Common Root Banner */}
-                            {treeData.commonRoot && (
-                              <div className="px-3 py-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-900/40 text-[11px] font-mono text-indigo-700 dark:text-indigo-300 flex items-center gap-2">
-                                <Folder className="w-4 h-4 text-indigo-500 shrink-0" />
-                                <span className="font-bold text-slate-500 dark:text-gray-400 uppercase text-[10px]">Ortak Kök Dizin:</span>
-                                <span className="truncate font-semibold">{treeData.commonRoot}\</span>
-                              </div>
-                            )}
-
-                            {/* Branches */}
-                            {treeData.branches.map((branch, bIdx) => (
-                              <div key={branch.subfolder || bIdx} className="space-y-1.5">
-                                {/* Branch Folder Label */}
-                                <div className="flex items-center gap-1.5 text-xs font-mono text-slate-700 dark:text-gray-300 pt-1">
-                                  <span className="text-indigo-400 dark:text-indigo-500 font-bold">├──</span>
-                                  <FolderOpen className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-                                  <span className="font-semibold text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 px-2 py-0.5 rounded border border-amber-200 dark:border-amber-900/50">
-                                    {branch.subfolder}
+                        return (
+                          <div
+                            key={group.group_id || idx}
+                            className="rounded-xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-black/20 overflow-hidden"
+                          >
+                            {/* Group Header */}
+                            <div className="flex flex-wrap items-center justify-between gap-3 p-3 bg-white dark:bg-white/[0.03] border-b border-slate-200 dark:border-white/5">
+                              <div className="flex items-center gap-2">
+                                <span className="font-bold text-xs text-slate-900 dark:text-white">
+                                  {idx + 1}. {files[0]?.filename || "Dosya"}
+                                </span>
+                                <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-amber-50 dark:bg-amber-950/50 text-amber-600 dark:text-amber-400 border border-amber-300 dark:border-amber-800">
+                                  -{group.wasted_formatted} israf
+                                </span>
+                                {allInGroupSelected && (
+                                  <span className="text-[10px] px-2 py-0.5 rounded bg-rose-500 text-white font-bold">
+                                    ⚠️ Tümü seçili (Orijinal kalmayacak!)
                                   </span>
-                                </div>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-3 text-[11px] text-slate-500 dark:text-gray-400">
+                                <span>
+                                  Tekil:{" "}
+                                  <strong className="text-slate-800 dark:text-gray-200">
+                                    {group.size_formatted}
+                                  </strong>
+                                </span>
+                                <span>
+                                  Adet:{" "}
+                                  <strong className="text-slate-800 dark:text-gray-200">
+                                    {group.count}
+                                  </strong>
+                                </span>
+                                <span className="font-mono text-[10px] bg-slate-200 dark:bg-black/40 px-1.5 py-0.5 rounded">
+                                  SHA: {group.hash?.substring(0, 10)}...
+                                </span>
+                              </div>
+                            </div>
 
-                                {/* Files in Branch (Indented) */}
-                                <div className="pl-6 space-y-1">
-                                  {branch.files.map((f: any, fIdx: number) => {
-                                    const isSelected = selectedDuplicatePaths.includes(f.path);
-                                    const exists = fileExistMap[f.path] !== false;
+                            {/* TREE VIEW MODE */}
+                            {duplicateViewMode === "tree"
+                              ? (
+                                <div className="p-2.5 space-y-3">
+                                  {/* Common Root Banner */}
+                                  {treeData.commonRoot && (
+                                    <div className="px-3 py-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-900/40 text-[11px] font-mono text-indigo-700 dark:text-indigo-300 flex items-center gap-2">
+                                      <Folder className="w-4 h-4 text-indigo-500 shrink-0" />
+                                      <span className="font-bold text-slate-500 dark:text-gray-400 uppercase text-[10px]">
+                                        Ortak Kök Dizin:
+                                      </span>
+                                      <span className="truncate font-semibold">
+                                        {treeData.commonRoot}\
+                                      </span>
+                                    </div>
+                                  )}
+
+                                  {/* Branches */}
+                                  {treeData.branches.map((branch, bIdx) => (
+                                    <div
+                                      key={branch.subfolder || bIdx}
+                                      className="space-y-1.5"
+                                    >
+                                      {/* Branch Folder Label */}
+                                      <div className="flex items-center gap-1.5 text-xs font-mono text-slate-700 dark:text-gray-300 pt-1">
+                                        <span className="text-indigo-400 dark:text-indigo-500 font-bold">
+                                          ├──
+                                        </span>
+                                        <FolderOpen className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                                        <span className="font-semibold text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 px-2 py-0.5 rounded border border-amber-200 dark:border-amber-900/50">
+                                          {branch.subfolder}
+                                        </span>
+                                      </div>
+
+                                      {/* Files in Branch (Indented) */}
+                                      <div className="pl-6 space-y-1">
+                                        {branch.files.map(
+                                          (f: any, fIdx: number) => {
+                                            const isSelected =
+                                              selectedDuplicatePaths.includes(
+                                                f.path,
+                                              );
+                                            const exists =
+                                              fileExistMap[f.path] !== false;
+
+                                            return (
+                                              <div
+                                                key={f.path || fIdx}
+                                                onClick={() =>
+                                                  exists &&
+                                                  toggleDuplicatePath(f.path)}
+                                                className={`flex items-center justify-between gap-3 p-2 rounded-lg border text-xs transition select-none ${
+                                                  !exists
+                                                    ? "bg-slate-100/60 dark:bg-white/[0.02] border-slate-200 dark:border-white/5 opacity-60 cursor-default"
+                                                    : isSelected
+                                                    ? "bg-rose-50/80 dark:bg-rose-950/30 border-rose-200 dark:border-rose-900/60 cursor-pointer shadow-xs"
+                                                    : "bg-white dark:bg-[#121929] border-slate-200 dark:border-white/5 hover:border-slate-300 dark:hover:border-white/20 cursor-pointer"
+                                                }`}
+                                              >
+                                                <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                                                  <span className="text-slate-400 dark:text-gray-600 font-mono">
+                                                    └──
+                                                  </span>
+                                                  <input
+                                                    type="checkbox"
+                                                    disabled={!exists}
+                                                    checked={isSelected &&
+                                                      exists}
+                                                    onChange={() => {}}
+                                                    className="w-4 h-4 rounded text-rose-600 accent-rose-500 cursor-pointer disabled:opacity-30"
+                                                  />
+                                                  {!exists
+                                                    ? (
+                                                      <span className="text-[10px] px-2 py-0.5 rounded font-bold uppercase bg-slate-200 dark:bg-white/10 text-slate-500 shrink-0">
+                                                        ✓ Taşınmış / Yok
+                                                      </span>
+                                                    )
+                                                    : (
+                                                      <span
+                                                        className={`text-[10px] px-2 py-0.5 rounded font-bold uppercase tracking-wider shrink-0 ${
+                                                          isSelected
+                                                            ? "bg-rose-100 dark:bg-rose-900/60 text-rose-700 dark:text-rose-300"
+                                                            : "bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300"
+                                                        }`}
+                                                      >
+                                                        {isSelected
+                                                          ? "Silinecek"
+                                                          : "Saklanacak"}
+                                                      </span>
+                                                    )}
+                                                  <FileText className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                                  <span
+                                                    className={`font-semibold font-mono text-[11px] truncate flex-1 ${
+                                                      !exists
+                                                        ? "text-slate-400 line-through"
+                                                        : isSelected
+                                                        ? "text-rose-700 dark:text-rose-300 line-through opacity-85"
+                                                        : "text-slate-800 dark:text-gray-100"
+                                                    }`}
+                                                    title={f.path}
+                                                  >
+                                                    {f.filename || f.path}
+                                                  </span>
+                                                </div>
+
+                                                <div className="flex items-center gap-2 shrink-0">
+                                                  <span className="text-[10px] text-slate-400 dark:text-gray-500 hidden sm:inline">
+                                                    {f.modified}
+                                                  </span>
+                                                  {exists && (
+                                                    <>
+                                                      <button
+                                                        onClick={(e) => {
+                                                          e.stopPropagation();
+                                                          handleDirectMove([
+                                                            f.path,
+                                                          ]);
+                                                        }}
+                                                        className="px-2 py-0.5 rounded bg-amber-50 dark:bg-amber-950/60 hover:bg-amber-100 text-amber-700 dark:text-amber-400 border border-amber-300 dark:border-amber-800 text-[10px] font-semibold"
+                                                        title="Bu tekil dosyayı _SILINECEK_KOPYALAR klasörüne taşı"
+                                                      >
+                                                        Taşı
+                                                      </button>
+                                                      <button
+                                                        onClick={(e) => {
+                                                          e.stopPropagation();
+                                                          handleDirectDelete([
+                                                            f.path,
+                                                          ]);
+                                                        }}
+                                                        className="px-2 py-0.5 rounded bg-rose-50 dark:bg-rose-950/60 hover:bg-rose-100 text-rose-700 dark:text-rose-400 border border-rose-300 dark:border-rose-800 text-[10px] font-semibold"
+                                                        title="Bu dosyayı Geri Dönüşüm Kutusuna at"
+                                                      >
+                                                        Çöpe At
+                                                      </button>
+                                                    </>
+                                                  )}
+                                                  <button
+                                                    onClick={(e) => {
+                                                      e.stopPropagation();
+                                                      navigator.clipboard
+                                                        .writeText(f.path);
+                                                    }}
+                                                    className="p-1 rounded hover:bg-slate-200 dark:hover:bg-white/10 text-slate-500 dark:text-gray-400 text-[10px]"
+                                                    title="Yolu Kopyala"
+                                                  >
+                                                    <Copy className="w-3.5 h-3.5" />
+                                                  </button>
+                                                  <button
+                                                    onClick={(e) => {
+                                                      e.stopPropagation();
+                                                      api.showInFolder(f.path);
+                                                    }}
+                                                    className="p-1 rounded hover:bg-slate-200 dark:hover:bg-white/10 text-slate-500 dark:text-gray-400 text-[10px]"
+                                                    title="Klasörde Göster"
+                                                  >
+                                                    <ExternalLink className="w-3.5 h-3.5" />
+                                                  </button>
+                                                </div>
+                                              </div>
+                                            );
+                                          },
+                                        )}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )
+                              : (
+                                /* FLAT LIST VIEW MODE */
+                                <div className="p-2 space-y-1.5">
+                                  {files.map((f: any, fIdx: number) => {
+                                    const isSelected = selectedDuplicatePaths
+                                      .includes(f.path);
+                                    const exists =
+                                      fileExistMap[f.path] !== false;
 
                                     return (
                                       <div
                                         key={f.path || fIdx}
-                                        onClick={() => exists && toggleDuplicatePath(f.path)}
+                                        onClick={() =>
+                                          exists && toggleDuplicatePath(f.path)}
                                         className={`flex items-center justify-between gap-3 p-2 rounded-lg border text-xs transition select-none ${
                                           !exists
                                             ? "bg-slate-100/60 dark:bg-white/[0.02] border-slate-200 dark:border-white/5 opacity-60 cursor-default"
                                             : isSelected
-                                            ? "bg-rose-50/80 dark:bg-rose-950/30 border-rose-200 dark:border-rose-900/60 cursor-pointer shadow-xs"
+                                            ? "bg-rose-50/80 dark:bg-rose-950/30 border-rose-200 dark:border-rose-900/60 cursor-pointer"
                                             : "bg-white dark:bg-[#121929] border-slate-200 dark:border-white/5 hover:border-slate-300 dark:hover:border-white/20 cursor-pointer"
                                         }`}
                                       >
                                         <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                                          <span className="text-slate-400 dark:text-gray-600 font-mono">└──</span>
                                           <input
                                             type="checkbox"
                                             disabled={!exists}
@@ -3064,33 +3465,36 @@ export default function App() {
                                             onChange={() => {}}
                                             className="w-4 h-4 rounded text-rose-600 accent-rose-500 cursor-pointer disabled:opacity-30"
                                           />
-                                          {!exists ? (
-                                            <span className="text-[10px] px-2 py-0.5 rounded font-bold uppercase bg-slate-200 dark:bg-white/10 text-slate-500 shrink-0">
-                                              ✓ Taşınmış / Yok
-                                            </span>
-                                          ) : (
-                                            <span
-                                              className={`text-[10px] px-2 py-0.5 rounded font-bold uppercase tracking-wider shrink-0 ${
-                                                isSelected
-                                                  ? "bg-rose-100 dark:bg-rose-900/60 text-rose-700 dark:text-rose-300"
-                                                  : "bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300"
-                                              }`}
-                                            >
-                                              {isSelected ? "Silinecek" : "Saklanacak"}
-                                            </span>
-                                          )}
-                                          <FileText className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                          {!exists
+                                            ? (
+                                              <span className="text-[10px] px-2 py-0.5 rounded font-bold uppercase bg-slate-200 dark:bg-white/10 text-slate-500 shrink-0">
+                                                ✓ Taşınmış / Yok
+                                              </span>
+                                            )
+                                            : (
+                                              <span
+                                                className={`text-[10px] px-2 py-0.5 rounded font-bold uppercase tracking-wider shrink-0 ${
+                                                  isSelected
+                                                    ? "bg-rose-100 dark:bg-rose-900/60 text-rose-700 dark:text-rose-300"
+                                                    : "bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300"
+                                                }`}
+                                              >
+                                                {isSelected
+                                                  ? "Silinecek"
+                                                  : "Saklanacak"}
+                                              </span>
+                                            )}
                                           <span
-                                            className={`font-semibold font-mono text-[11px] truncate flex-1 ${
+                                            className={`font-mono text-[11px] truncate flex-1 ${
                                               !exists
                                                 ? "text-slate-400 line-through"
                                                 : isSelected
-                                                ? "text-rose-700 dark:text-rose-300 line-through opacity-85"
-                                                : "text-slate-800 dark:text-gray-100"
+                                                ? "text-rose-700 dark:text-rose-300 line-through opacity-80"
+                                                : "text-slate-700 dark:text-gray-200"
                                             }`}
                                             title={f.path}
                                           >
-                                            {f.filename || f.path}
+                                            {f.path}
                                           </span>
                                         </div>
 
@@ -3125,7 +3529,9 @@ export default function App() {
                                           <button
                                             onClick={(e) => {
                                               e.stopPropagation();
-                                              navigator.clipboard.writeText(f.path);
+                                              navigator.clipboard.writeText(
+                                                f.path,
+                                              );
                                             }}
                                             className="p-1 rounded hover:bg-slate-200 dark:hover:bg-white/10 text-slate-500 dark:text-gray-400 text-[10px]"
                                             title="Yolu Kopyala"
@@ -3147,126 +3553,19 @@ export default function App() {
                                     );
                                   })}
                                 </div>
-                              </div>
-                            ))}
+                              )}
                           </div>
-                        ) : (
-                          /* FLAT LIST VIEW MODE */
-                          <div className="p-2 space-y-1.5">
-                            {files.map((f: any, fIdx: number) => {
-                              const isSelected = selectedDuplicatePaths.includes(f.path);
-                              const exists = fileExistMap[f.path] !== false;
-
-                              return (
-                                <div
-                                  key={f.path || fIdx}
-                                  onClick={() => exists && toggleDuplicatePath(f.path)}
-                                  className={`flex items-center justify-between gap-3 p-2 rounded-lg border text-xs transition select-none ${
-                                    !exists
-                                      ? "bg-slate-100/60 dark:bg-white/[0.02] border-slate-200 dark:border-white/5 opacity-60 cursor-default"
-                                      : isSelected
-                                      ? "bg-rose-50/80 dark:bg-rose-950/30 border-rose-200 dark:border-rose-900/60 cursor-pointer"
-                                      : "bg-white dark:bg-[#121929] border-slate-200 dark:border-white/5 hover:border-slate-300 dark:hover:border-white/20 cursor-pointer"
-                                  }`}
-                                >
-                                  <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                                    <input
-                                      type="checkbox"
-                                      disabled={!exists}
-                                      checked={isSelected && exists}
-                                      onChange={() => {}}
-                                      className="w-4 h-4 rounded text-rose-600 accent-rose-500 cursor-pointer disabled:opacity-30"
-                                    />
-                                    {!exists ? (
-                                      <span className="text-[10px] px-2 py-0.5 rounded font-bold uppercase bg-slate-200 dark:bg-white/10 text-slate-500 shrink-0">
-                                        ✓ Taşınmış / Yok
-                                      </span>
-                                    ) : (
-                                      <span
-                                        className={`text-[10px] px-2 py-0.5 rounded font-bold uppercase tracking-wider shrink-0 ${
-                                          isSelected
-                                            ? "bg-rose-100 dark:bg-rose-900/60 text-rose-700 dark:text-rose-300"
-                                            : "bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300"
-                                        }`}
-                                      >
-                                        {isSelected ? "Silinecek" : "Saklanacak"}
-                                      </span>
-                                    )}
-                                    <span
-                                      className={`font-mono text-[11px] truncate flex-1 ${
-                                        !exists
-                                          ? "text-slate-400 line-through"
-                                          : isSelected
-                                          ? "text-rose-700 dark:text-rose-300 line-through opacity-80"
-                                          : "text-slate-700 dark:text-gray-200"
-                                      }`}
-                                      title={f.path}
-                                    >
-                                      {f.path}
-                                    </span>
-                                  </div>
-
-                                  <div className="flex items-center gap-2 shrink-0">
-                                    <span className="text-[10px] text-slate-400 dark:text-gray-500 hidden sm:inline">
-                                      {f.modified}
-                                    </span>
-                                    {exists && (
-                                      <>
-                                        <button
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            handleDirectMove([f.path]);
-                                          }}
-                                          className="px-2 py-0.5 rounded bg-amber-50 dark:bg-amber-950/60 hover:bg-amber-100 text-amber-700 dark:text-amber-400 border border-amber-300 dark:border-amber-800 text-[10px] font-semibold"
-                                          title="Bu tekil dosyayı _SILINECEK_KOPYALAR klasörüne taşı"
-                                        >
-                                          Taşı
-                                        </button>
-                                        <button
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            handleDirectDelete([f.path]);
-                                          }}
-                                          className="px-2 py-0.5 rounded bg-rose-50 dark:bg-rose-950/60 hover:bg-rose-100 text-rose-700 dark:text-rose-400 border border-rose-300 dark:border-rose-800 text-[10px] font-semibold"
-                                          title="Bu dosyayı Geri Dönüşüm Kutusuna at"
-                                        >
-                                          Çöpe At
-                                        </button>
-                                      </>
-                                    )}
-                                    <button
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        navigator.clipboard.writeText(f.path);
-                                      }}
-                                      className="p-1 rounded hover:bg-slate-200 dark:hover:bg-white/10 text-slate-500 dark:text-gray-400 text-[10px]"
-                                      title="Yolu Kopyala"
-                                    >
-                                      <Copy className="w-3.5 h-3.5" />
-                                    </button>
-                                    <button
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        api.showInFolder(f.path);
-                                      }}
-                                      className="p-1 rounded hover:bg-slate-200 dark:hover:bg-white/10 text-slate-500 dark:text-gray-400 text-[10px]"
-                                      title="Klasörde Göster"
-                                    >
-                                      <ExternalLink className="w-3.5 h-3.5" />
-                                    </button>
-                                  </div>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })
-                )}
+                        );
+                      },
+                    )
+                  )}
                 {duplicateList.length > 50 && (
                   <p className="text-center text-xs text-slate-500 dark:text-gray-400 py-2">
-                    İlk 50 mükerrer dosya grubu gösteriliyor. Tüm {duplicateList.length} grubu yönetmek için "scanner.py" tarafından üretilen "duplicate_report.html" dosyasını tarayıcınızda açabilirsiniz.
+                    İlk 50 mükerrer dosya grubu gösteriliyor. Tüm{" "}
+                    {duplicateList.length}{" "}
+                    grubu yönetmek için "scanner.py" tarafından üretilen
+                    "duplicate_report.html" dosyasını tarayıcınızda
+                    açabilirsiniz.
                   </p>
                 )}
               </div>

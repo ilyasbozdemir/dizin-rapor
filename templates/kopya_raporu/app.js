@@ -488,29 +488,72 @@ function generateScriptText() {
     return '# Henüz silinecek dosya seçilmedi.\n# Yukarıdaki listeden dosyaları seçin veya "İlkini Tut, Kalanları Seç" butonuna tıklayın.';
   }
 
+  // Güvenlik Kontrolü: Seçilen her dosya için beklenen SHA-256 ve korunacak (keeper) dosya bilgisini derle
+  const fileSafetyMap = new Map();
+  const unsafeAllSelectedGroups = [];
+  duplicateData.forEach(g => {
+    const keepers = g.files.filter(f => !selectedPaths.has(f.path));
+    if (keepers.length === 0 && g.files.length > 0) {
+      unsafeAllSelectedGroups.push(g.group_id);
+    }
+    const keeperPath = keepers.length > 0 ? keepers[0].path : '';
+    g.files.forEach(f => {
+      if (selectedPaths.has(f.path)) {
+        fileSafetyMap.set(f.path, {
+          hash: (g.hash || '').toUpperCase(),
+          size: g.size_bytes,
+          keeper: keeperPath
+        });
+      }
+    });
+  });
+
+  if (unsafeAllSelectedGroups.length > 0) {
+    return `# ⚠️ GÜVENLİK UYARISI: ${unsafeAllSelectedGroups.length} gruptaki TÜM kopyalar seçilmiş durumda!\n` +
+           `# Veri kaybını önlemek için her grupta en az 1 kopya "Saklanacak" olarak bırakılmalıdır.\n` +
+           `# Lütfen tümü seçili olan gruplarda en az bir dosyanın işaretini kaldırın.`;
+  }
+
   if (currentPlatform === 'powershell') {
+    const entriesPs = paths.map(p => {
+      const meta = fileSafetyMap.get(p) || { hash: '', size: 0, keeper: '' };
+      const escP = p.replace(/`/g, '``').replace(/\$/g, '`$');
+      const escK = (meta.keeper || '').replace(/`/g, '``').replace(/\$/g, '`$');
+      return `    @{ Path = "${escP}"; Hash = "${meta.hash}"; Size = ${meta.size}; Keeper = "${escK}" }`;
+    }).join(',\n');
+
     if (isSafe) {
       return `# ========================================================\n` +
              `# Arşiv 360 - Güvenli Kopya Taşıma Betiği (PowerShell)\n` +
              `# Tarih: ${now}\n` +
-             `# Taşınacak Dosya: ${paths.length} adet (${totalSize})\n` +
+             `# Taşınacak Dosya: ${paths.length} adet (Teorik: ${totalSize})\n` +
              `# ========================================================\n` +
              `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8\n` +
              `$ErrorActionPreference = "Continue"\n\n` +
              `$targetRoot = "_SILINECEK_KOPYALAR"\n` +
-             `Write-Host "Kopya dosyalar güvenli karantinaya taşınıyor..." -ForegroundColor Cyan\n\n` +
-             `$files = @(\n` +
-             paths.map(p => `    "${p.replace(/`/g, '``').replace(/\$/g, '`$')}"`).join(',\n') +
-             `\n)\n\n` +
+             `Write-Host "Kopya dosyalar SHA-256 doğrulamasıyla güvenli karantinaya taşınıyor..." -ForegroundColor Cyan\n\n` +
+             `$items = @(\n${entriesPs}\n)\n\n` +
              `$success = 0; $fail = 0\n` +
-             `foreach ($f in $files) {\n` +
+             `foreach ($item in $items) {\n` +
+             `    $f = $item.Path\n` +
+             `    $k = $item.Keeper\n` +
+             `    if (-not (Test-Path -LiteralPath $k)) {\n` +
+             `        Write-Host "  [X Atlandı] Korunacak kopya bulunamadı: $k" -ForegroundColor Red; $fail++; continue\n` +
+             `    }\n` +
              `    if (Test-Path -LiteralPath $f) {\n` +
              `        try {\n` +
-             `            $drive = (Get-Item -LiteralPath $f).PSDrive.Name + ":\\\\"\n` +
-             `            $destFolder = Join-Path $drive $targetRoot\n` +
+             `            $curHash = (Get-FileHash -LiteralPath $f -Algorithm SHA256).Hash.ToUpper()\n` +
+             `            if ($item.Hash -and ($curHash -ne $item.Hash)) {\n` +
+             `                Write-Host "  [X Atlandı] Dosya içeriği değişmiş (SHA-256 uyuşmuyor): $f" -ForegroundColor Yellow; $fail++; continue\n` +
+             `            }\n` +
+             `            $fileObj = Get-Item -LiteralPath $f -Force\n` +
+             `            $driveRoot = $fileObj.PSDrive.Name + ":\\\\"\n` +
+             `            $relDir = $fileObj.DirectoryName.Substring($driveRoot.Length)\n` +
+             `            $destFolder = Join-Path (Join-Path $driveRoot $targetRoot) $relDir\n` +
              `            if (-not (Test-Path -LiteralPath $destFolder)) { New-Item -ItemType Directory -Path $destFolder -Force | Out-Null }\n` +
-             `            Move-Item -LiteralPath $f -Destination $destFolder -Force -ErrorAction Stop\n` +
-             `            Write-Host "  [✓ Taşındı] $f -> $destFolder" -ForegroundColor Green\n` +
+             `            $destFile = Join-Path $destFolder $fileObj.Name\n` +
+             `            Move-Item -LiteralPath $f -Destination $destFile -Force -ErrorAction Stop\n` +
+             `            Write-Host "  [✓ Taşındı] $f -> $destFile" -ForegroundColor Green\n` +
              `            $success++\n` +
              `        } catch {\n` +
              `            Write-Host "  [X Hata] $f ($($_.Exception.Message))" -ForegroundColor Red\n` +
@@ -520,26 +563,33 @@ function generateScriptText() {
              `        Write-Host "  [-] Bulunamadı: $f" -ForegroundColor Yellow\n` +
              `    }\n` +
              `}\n\n` +
-             `Write-Host "\\nİşlem Tamamlandı! Başarılı: $success | Hata: $fail" -ForegroundColor Cyan\n` +
-             `Write-Host "Dosyalarınız disk kökündeki '_SILINECEK_KOPYALAR' klasörüne taşındı." -ForegroundColor Yellow\n` +
+             `Write-Host "\\nİşlem Tamamlandı! Başarılı: $success | Hata/Atlanan: $fail" -ForegroundColor Cyan\n` +
+             `Write-Host "Dosyalarınız klasör yapısı korunarak '_SILINECEK_KOPYALAR' altına taşındı." -ForegroundColor Yellow\n` +
              `pause\n`;
     } else {
       return `# ========================================================\n` +
              `# Arşiv 360 - Kalıcı Kopya Silme Betiği (PowerShell)\n` +
              `# Tarih: ${now}\n` +
-             `# Silinecek Dosya: ${paths.length} adet (${totalSize})\n` +
+             `# Silinecek Dosya: ${paths.length} adet (Teorik: ${totalSize})\n` +
              `# ========================================================\n` +
              `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8\n` +
              `$ErrorActionPreference = "Continue"\n\n` +
              `$confirm = Read-Host "${paths.length} adet kopya dosya KALICI OLARAK silinecektir. Devam etmek için 'EVET' yazın"\n` +
              `if ($confirm -ne 'EVET') { Write-Host 'İşlem iptal edildi.' -ForegroundColor Yellow; exit }\n\n` +
-             `$files = @(\n` +
-             paths.map(p => `    "${p.replace(/`/g, '``').replace(/\$/g, '`$')}"`).join(',\n') +
-             `\n)\n\n` +
+             `$items = @(\n${entriesPs}\n)\n\n` +
              `$deleted = 0\n` +
-             `foreach ($f in $files) {\n` +
+             `foreach ($item in $items) {\n` +
+             `    $f = $item.Path\n` +
+             `    $k = $item.Keeper\n` +
+             `    if (-not (Test-Path -LiteralPath $k)) {\n` +
+             `        Write-Host "  [X Atlandı] Korunacak kopya bulunamadı: $k" -ForegroundColor Red; continue\n` +
+             `    }\n` +
              `    if (Test-Path -LiteralPath $f) {\n` +
              `        try {\n` +
+             `            $curHash = (Get-FileHash -LiteralPath $f -Algorithm SHA256).Hash.ToUpper()\n` +
+             `            if ($item.Hash -and ($curHash -ne $item.Hash)) {\n` +
+             `                Write-Host "  [X Atlandı] Dosya içeriği değişmiş (SHA-256 uyuşmuyor): $f" -ForegroundColor Yellow; continue\n` +
+             `            }\n` +
              `            Remove-Item -LiteralPath $f -Force -ErrorAction Stop\n` +
              `            Write-Host "  [✓ Silindi] $f" -ForegroundColor Green\n` +
              `            $deleted++\n` +

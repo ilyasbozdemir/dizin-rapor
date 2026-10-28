@@ -70,12 +70,12 @@ function extractFileInlineTags(filename: string): { cleanName: string; tags: str
 }
 
 function getPreloadPath(): string {
-  const mjsPath = join(__dirname, '../preload/index.mjs')
   const cjsPath = join(__dirname, '../preload/index.cjs')
   const jsPath = join(__dirname, '../preload/index.js')
-  if (fs.existsSync(mjsPath)) return mjsPath
+  const mjsPath = join(__dirname, '../preload/index.mjs')
   if (fs.existsSync(cjsPath)) return cjsPath
-  return jsPath
+  if (fs.existsSync(jsPath)) return jsPath
+  return mjsPath
 }
 
 function createWindow(): void {
@@ -215,23 +215,46 @@ ipcMain.handle('stop-python-task', async (_event, { taskId }) => {
   return { success: false, message: 'Çalışan işlem bulunamadı' }
 })
 
-// 2. Directory Listing with TagSpaces & Temin-360 Auto-Tags
-function collectFilesRecursively(
-  dir: string,
-  currentDepth: number,
+// 2. Directory Listing with Breadth-First Real Disk Traversal & Auto-Tags
+function collectFilesBFS(
+  rootDir: string,
   maxDepth: number,
   tagsDb: Record<string, string[]>,
-  acc: any[],
-  maxFiles = 2500
-): void {
-  if (currentDepth > maxDepth || acc.length >= maxFiles) return
-  try {
-    const entries = fs.readdirSync(dir, { withFileTypes: true })
+  maxFiles = 5000
+): any[] {
+  const acc: any[] = []
+  const queue: { dir: string; depth: number }[] = [{ dir: rootDir, depth: 0 }]
+
+  while (queue.length > 0 && acc.length < maxFiles) {
+    const { dir, depth } = queue.shift()!
+    if (depth > maxDepth) continue
+
+    let entries: fs.Dirent[] = []
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true })
+    } catch {
+      continue
+    }
+
     for (const ent of entries) {
       if (acc.length >= maxFiles) break
-      if (ent.name.startsWith('$') || ent.name.startsWith('.') || ent.name === 'System Volume Information' || ent.name === 'found.000' || ent.name === 'node_modules' || ent.name === '$RECYCLE.BIN') {
+      const nameL = ent.name.toLowerCase()
+      if (
+        ent.name.startsWith('$') ||
+        ent.name.startsWith('.') ||
+        ent.name.startsWith('~$') ||
+        nameL === 'system volume information' ||
+        nameL.startsWith('found.00') ||
+        nameL === 'node_modules' ||
+        nameL === '$recycle.bin' ||
+        nameL === 'pagefile.sys' ||
+        nameL === 'hiberfil.sys' ||
+        nameL === 'swapfile.sys' ||
+        nameL.startsWith('dumpstack.log')
+      ) {
         continue
       }
+
       const fullPath = join(dir, ent.name)
       let size = 0
       let mtime = 0
@@ -271,29 +294,64 @@ function collectFilesRecursively(
         tags: allTags
       })
 
-      if (isDir && currentDepth < maxDepth) {
-        collectFilesRecursively(fullPath, currentDepth + 1, maxDepth, tagsDb, acc, maxFiles)
+      if (isDir && depth < maxDepth) {
+        queue.push({ dir: fullPath, depth: depth + 1 })
       }
     }
-  } catch {}
+  }
+  return acc
+}
+
+function formatDriveCapacity(bytes: number): string {
+  if (!bytes || bytes <= 0) return ''
+  const gb = bytes / (1024 * 1024 * 1024)
+  if (gb >= 1000) return `${(gb / 1024).toFixed(1)} TB`
+  return `${Math.round(gb)} GB`
 }
 
 ipcMain.handle('get-system-drives', async () => {
-  const drives: { letter: string; path: string; label: string; isReady: boolean }[] = []
+  const drives: {
+    letter: string
+    path: string
+    label: string
+    isReady: boolean
+    totalBytes?: number
+    freeBytes?: number
+    sizeText?: string
+  }[] = []
   const letters = 'CDEFGHIJKLMNOPQRSTUVWXYZ'.split('')
   for (const l of letters) {
     const root = `${l}:\\`
     try {
       if (fs.existsSync(root)) {
+        // Verify the volume is mounted and readable
+        fs.readdirSync(root)
+        let totalBytes = 0
+        let freeBytes = 0
+        let sizeText = ''
+        try {
+          if (typeof fs.statfsSync === 'function') {
+            const st = fs.statfsSync(root)
+            totalBytes = st.bsize * st.blocks
+            freeBytes = st.bsize * st.bavail
+            sizeText = formatDriveCapacity(totalBytes)
+          }
+        } catch {}
+
         let label = `Sürücü (${l}:)`
-        if (l === 'C') label = 'Yerel Disk (C:)'
-        else if (l === 'D') label = 'Disk (D:)'
-        else if (l === 'E') label = 'USB / Disk (E:)'
+        if (l === 'C') label = `Yerel Disk (C:)${sizeText ? ' • ' + sizeText : ''}`
+        else if (l === 'D') label = `Depo Disk (D:)${sizeText ? ' • ' + sizeText : ''}`
+        else if (l === 'E') label = `Harici / USB (E:)${sizeText ? ' • ' + sizeText : ''}`
+        else if (sizeText) label = `Disk (${l}:) • ${sizeText}`
+
         drives.push({
           letter: l,
           path: root,
           label,
-          isReady: true
+          isReady: true,
+          totalBytes,
+          freeBytes,
+          sizeText
         })
       }
     } catch {}
@@ -315,28 +373,48 @@ ipcMain.handle('select-folder', async () => {
 
 ipcMain.handle('list-directory', async (_event, dirPath: string, options?: { maxDepth?: number; maxFiles?: number }) => {
   try {
-    let targetDir = dirPath
-    if (!targetDir || !fs.existsSync(targetDir)) {
-      if (fs.existsSync('D:\\E_BIRLESTIRME')) targetDir = 'D:\\E_BIRLESTIRME'
-      else if (fs.existsSync('D:\\')) targetDir = 'D:\\'
-      else if (fs.existsSync('E:\\')) targetDir = 'E:\\'
-      else if (fs.existsSync('C:\\')) targetDir = 'C:\\'
-      else targetDir = SCRIPT_DIR
+    let targetDir = (dirPath || '').trim()
+    if (/^[a-zA-Z]:$/.test(targetDir)) {
+      targetDir = targetDir.toUpperCase() + '\\'
     }
 
-    // Direct child subfolders with counts
+    let isAccessible = false
+    if (targetDir) {
+      try {
+        if (fs.existsSync(targetDir)) {
+          fs.readdirSync(targetDir)
+          isAccessible = true
+        }
+      } catch {}
+    }
+
+    if (!isAccessible) {
+      // Fall back to a real mounted drive (D:\ or C:\)
+      for (const fallback of ['D:\\', 'E:\\', 'C:\\', SCRIPT_DIR]) {
+        try {
+          if (fs.existsSync(fallback)) {
+            fs.readdirSync(fallback)
+            targetDir = fallback
+            break
+          }
+        } catch {}
+      }
+    }
+
+    // Direct child subfolders with real item counts
     const subfolders: { name: string; path: string; fileCount: number }[] = []
     try {
       const dirEntries = fs.readdirSync(targetDir, { withFileTypes: true })
       for (const d of dirEntries) {
+        const nameL = d.name.toLowerCase()
         if (
           d.isDirectory() &&
           !d.name.startsWith('.') &&
           !d.name.startsWith('$') &&
-          d.name !== 'node_modules' &&
-          d.name !== 'System Volume Information' &&
-          d.name !== 'found.000' &&
-          d.name !== '$RECYCLE.BIN'
+          nameL !== 'node_modules' &&
+          nameL !== 'system volume information' &&
+          !nameL.startsWith('found.00') &&
+          nameL !== '$recycle.bin'
         ) {
           const subPath = join(targetDir, d.name)
           let count = 0
@@ -349,11 +427,10 @@ ipcMain.handle('list-directory', async (_event, dirPath: string, options?: { max
     } catch {}
 
     const maxDepth = typeof options?.maxDepth === 'number' ? options.maxDepth : 2
-    const maxFiles = typeof options?.maxFiles === 'number' ? options.maxFiles : 2500
+    const maxFiles = typeof options?.maxFiles === 'number' ? options.maxFiles : 5000
 
     const tagsDb = loadTagsDb()
-    const items: any[] = []
-    collectFilesRecursively(targetDir, 0, maxDepth, tagsDb, items, maxFiles)
+    const items = collectFilesBFS(targetDir, maxDepth, tagsDb, maxFiles)
 
     return { success: true, items, targetDir, subfolders }
   } catch (err: any) {
