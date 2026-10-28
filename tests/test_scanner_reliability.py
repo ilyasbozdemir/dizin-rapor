@@ -433,6 +433,99 @@ class TestScannerReliability(unittest.TestCase):
         self.assertEqual(res2["summary"]["duplicate_groups_count"], 1)
         self.assertEqual(res2["summary"]["cache_hits_count"], 2)
 
+    # 18. Karantina hedefinde çakışma olduğunda üzerine yazmama (_kopya_1 soneki) testi
+    def test_18_quarantine_collision_no_overwrite(self):
+        payload = b"Karantina-Cakisma-Testi-" * 5000
+        f_keep = self._write_bytes("ana/belge.txt", payload)
+        f_dup = self._write_bytes("yedek/belge.txt", payload)
+
+        res = scanner.scan_directories([str(self.scan_dir)], out_dir=self.out_dir, write_reports=False, quiet=True)
+        q_root = self.out_dir / "_KARANTINA_TEST"
+
+        # Karantina hedefinde önceden aynı yolda farklı bir dosya bulunduğunu simüle et
+        drv, tail = os.path.splitdrive(os.path.abspath(str(f_dup)))
+        expected_rel = tail.lstrip("\\/")
+        preexisting_dest = Path(os.path.join((drv + "\\") if drv else str(self.out_dir), str(q_root), expected_rel))
+        preexisting_dest.parent.mkdir(parents=True, exist_ok=True)
+        preexisting_dest.write_bytes(b"ONCEDEN_KARANTINADA_VAR_OLAN_DOSYA")
+
+        q_res = scanner.safe_quarantine_or_delete(
+            [str(f_dup)],
+            res["duplicates"],
+            mode="quarantine",
+            quarantine_dir_name=str(q_root),
+            user_confirmed=True,
+        )
+        self.assertEqual(len(q_res["moved_or_deleted"]), 1)
+        moved_dest = Path(q_res["moved_or_deleted"][0]["destination"])
+        # Mevcut dosyanın üzerine YAZILMAMIŞ olmalı (_kopya_1 olarak kaydedilmeli)
+        self.assertNotEqual(moved_dest, preexisting_dest)
+        self.assertIn("_kopya_1", moved_dest.name)
+        self.assertEqual(preexisting_dest.read_bytes(), b"ONCEDEN_KARANTINADA_VAR_OLAN_DOSYA")
+        self.assertEqual(moved_dest.read_bytes(), payload)
+
+    # 19. Temizleme betiğinde güvenli yol kaçışları (PowerShell, CMD, Bash) ve üzerine yazmama kuralları
+    def test_19_script_escaping_and_no_clobber_in_app_js(self):
+        app_js_path = Path(__file__).parent.parent / "templates" / "kopya_raporu" / "app.js"
+        content = app_js_path.read_text(encoding="utf-8")
+
+        # Üç platform için ayrı kaçış fonksiyonları ve çakışmasız hedef oluşturucular bulunmalı
+        self.assertIn("function escapePsLiteral(", content)
+        self.assertIn("function escapeCmdLiteral(", content)
+        self.assertIn("function escapeBashLiteral(", content)
+        self.assertIn("function buildQuarantineTargetWin(", content)
+        self.assertIn("function buildQuarantineTargetPosix(", content)
+
+        # Tehlikeli üzerine yazma bayrakları (move /y, mv -f, Move-Item ... -Force) kullanılmamalı
+        self.assertNotIn("move /y", content)
+        self.assertNotIn("mv -f", content)
+        self.assertNotIn("Move-Item -LiteralPath $f -Destination $destFile -Force", content)
+        self.assertNotIn("Move-Item -LiteralPath $f -Destination $destFolder -Force", content)
+        self.assertIn("move /-y", content)
+        self.assertIn('mv -n "$src" "$dst"', content)
+
+    # 20. Sıfır baytlık dosya opsiyonu (--include-zero-byte) ve Eksik vs Tam Tarama durumu (scan_status)
+    def test_20_zero_byte_include_option_and_partial_scan_status(self):
+        self._write_bytes("bos_a.txt", b"")
+        self._write_bytes("bos_b.txt", b"")
+
+        # Varsayılan: 0 baytlık dosyalar ayrı izlenir, tam tarama COMPLETE olarak işaretlenir
+        res_default = scanner.scan_directories(
+            [str(self.scan_dir)],
+            out_dir=self.out_dir,
+            include_zero_byte_duplicates=False,
+            write_reports=False,
+            quiet=True,
+        )
+        self.assertEqual(res_default["summary"]["scan_status"], "COMPLETE")
+        self.assertTrue(res_default["summary"]["is_complete_scan"])
+        self.assertEqual(res_default["summary"]["duplicate_groups_count"], 0)
+        self.assertEqual(res_default["summary"]["zero_byte_policy"], "tracked_separately_0B_waste")
+
+        # Opsiyonel (--include-zero-byte): 0 baytlık dosyalar kopya grubuna dahil edilir
+        res_incl = scanner.scan_directories(
+            [str(self.scan_dir)],
+            out_dir=self.out_dir,
+            include_zero_byte_duplicates=True,
+            write_reports=False,
+            quiet=True,
+        )
+        self.assertEqual(res_incl["summary"]["duplicate_groups_count"], 1)
+        self.assertEqual(res_incl["duplicates"][0]["size_bytes"], 0)
+        self.assertEqual(res_incl["duplicates"][0]["count"], 2)
+
+        # Var olmayan bir kök eklendiğinde kısmi tarama (PARTIAL_WITH_ERRORS) olarak raporlanmalı
+        res_partial = scanner.scan_directories(
+            [str(self.scan_dir), str(self.root / "olmayan_dizin")],
+            out_dir=self.out_dir,
+            write_reports=True,
+            quiet=True,
+        )
+        self.assertEqual(res_partial["summary"]["scan_status"], "PARTIAL_WITH_ERRORS")
+        self.assertFalse(res_partial["summary"]["is_complete_scan"])
+        self.assertIn("Kısmi Tarama", (self.out_dir / "duplicate_report.md").read_text(encoding="utf-8"))
+        self.assertIn("Kısmi / Eksik Tarama Uyarısı", (self.out_dir / "rapor_kopya" / "index.html").read_text(encoding="utf-8"))
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

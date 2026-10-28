@@ -215,15 +215,15 @@ function buildGroupCard(group, idx) {
           <div class="${rowClass}" id="row-${idx}-${fIdx}">
             <label class="file-chk-label">
               <span style="color:#64748b; font-family:monospace;">└──</span>
-              <input type="checkbox" class="file-chk" ${isSelected ? 'checked' : ''} 
-                onchange="toggleFileSelection('${escapeJs(f.path)}', this.checked)">
+              <input type="checkbox" class="file-chk" data-path="${escapeHtml(f.path)}" ${isSelected ? 'checked' : ''} 
+                onchange="toggleFileSelection(this.dataset.path, this.checked)">
               ${statusHtml}
             </label>
             <div class="file-path">
               📄 <strong>${escapeHtml(f.filename)}</strong>
             </div>
             <div class="file-time">${f.modified}</div>
-            <button class="btn-copy" onclick="navigator.clipboard.writeText('${escapeJs(f.path)}'); showToast('Dosya yolu kopyalandı!')">Yolu Kopyala</button>
+            <button class="btn-copy" data-path="${escapeHtml(f.path)}" onclick="copyFilePath(this.dataset.path)">Yolu Kopyala</button>
           </div>
         `;
       }).join('');
@@ -261,15 +261,15 @@ function buildGroupCard(group, idx) {
       return `
         <div class="${rowClass}" id="row-${idx}-${fIdx}">
           <label class="file-chk-label">
-            <input type="checkbox" class="file-chk" ${isSelected ? 'checked' : ''} 
-              onchange="toggleFileSelection('${escapeJs(f.path)}', this.checked)">
+            <input type="checkbox" class="file-chk" data-path="${escapeHtml(f.path)}" ${isSelected ? 'checked' : ''} 
+              onchange="toggleFileSelection(this.dataset.path, this.checked)">
             ${statusHtml}
           </label>
           <div class="file-path">
             <span class="drive-tag ${driveClass}">${f.drive}</span>${escapeHtml(f.path)}
           </div>
           <div class="file-time">${f.modified}</div>
-          <button class="btn-copy" onclick="navigator.clipboard.writeText('${escapeJs(f.path)}'); showToast('Dosya yolu kopyalandı!')">Yolu Kopyala</button>
+          <button class="btn-copy" data-path="${escapeHtml(f.path)}" onclick="copyFilePath(this.dataset.path)">Yolu Kopyala</button>
         </div>
       `;
     }).join('');
@@ -362,22 +362,31 @@ function organizeFilesIntoTree(files) {
   return { commonRoot, branches };
 }
 
+function copyFilePath(path) {
+  if (!path) return;
+  navigator.clipboard.writeText(path);
+  showToast('Dosya yolu kopyalandı!');
+}
+
 function toggleFileSelection(path, isChecked) {
+  if (!path) return;
   if (isChecked) {
     selectedPaths.add(path);
   } else {
     selectedPaths.delete(path);
   }
-  // Fast DOM update for visible cards
-  document.querySelectorAll(`.file-chk[onchange*="${escapeJs(path)}"]`).forEach(chk => {
-    chk.checked = isChecked;
-    const row = chk.closest('.file-row');
-    if (row) {
-      row.classList.toggle('is-selected', isChecked);
-      const badge = row.querySelector('.status-badge');
-      if (badge) {
-        badge.className = isChecked ? 'status-badge status-del' : 'status-badge status-keep';
-        badge.innerText = isChecked ? 'Silinecek' : 'Saklanacak';
+  // Fast DOM update for visible cards using dataset.path (no fragile inline JS selector quoting)
+  document.querySelectorAll('.file-chk').forEach(chk => {
+    if (chk.dataset.path === path) {
+      chk.checked = isChecked;
+      const row = chk.closest('.file-row');
+      if (row) {
+        row.classList.toggle('is-selected', isChecked);
+        const badge = row.querySelector('.status-badge');
+        if (badge) {
+          badge.className = isChecked ? 'status-badge status-del' : 'status-badge status-keep';
+          badge.innerText = isChecked ? 'Silinecek' : 'Saklanacak';
+        }
       }
     }
   });
@@ -428,18 +437,15 @@ function clearAllSelections() {
 function refreshVisibleSelections() {
   document.querySelectorAll('.file-row').forEach(row => {
     const chk = row.querySelector('.file-chk');
-    if (chk) {
-      const match = chk.getAttribute('onchange').match(/'(.*?)'/);
-      if (match && match[1]) {
-        const p = match[1].replace(/\\\\/g, '\\');
-        const isSelected = selectedPaths.has(p);
-        chk.checked = isSelected;
-        row.classList.toggle('is-selected', isSelected);
-        const badge = row.querySelector('.status-badge');
-        if (badge) {
-          badge.className = isSelected ? 'status-badge status-del' : 'status-badge status-keep';
-          badge.innerText = isSelected ? 'Silinecek' : 'Saklanacak';
-        }
+    if (chk && chk.dataset.path) {
+      const p = chk.dataset.path;
+      const isSelected = selectedPaths.has(p);
+      chk.checked = isSelected;
+      row.classList.toggle('is-selected', isSelected);
+      const badge = row.querySelector('.status-badge');
+      if (badge) {
+        badge.className = isSelected ? 'status-badge status-del' : 'status-badge status-keep';
+        badge.innerText = isSelected ? 'Silinecek' : 'Saklanacak';
       }
     }
   });
@@ -476,6 +482,71 @@ function setPlatform(plat) {
   if (document.getElementById('previewModal').classList.contains('open')) {
     openPreviewModal();
   }
+}
+
+/**
+ * Dile Özgü Güvenli Yol Kodlama (Path Escaping) ve Karantina Hedef Hesaplayıcıları
+ */
+function escapePsLiteral(str) {
+  // PowerShell tek tırnaklı değişmez dizge ('...'): yalnızca tek tırnak '' olarak kaçırılır;
+  // $, `, ", $(), & gibi karakterler kesinlikle yorumlanmaz/çalıştırılmaz.
+  return "'" + String(str || '').replace(/\r|\n/g, '').replace(/'/g, "''") + "'";
+}
+
+function escapeCmdLiteral(str) {
+  // Windows CMD çift tırnak içi: % değişken genişlemesini %% ile kapatır, satır sonu ve " karakterini temizler.
+  return String(str || '').replace(/\r|\n/g, '').replace(/"/g, '').replace(/%/g, '%%');
+}
+
+function escapeBashLiteral(str) {
+  // POSIX / Bash tek tırnaklı dizge ('...'): içindeki ' karakteri '\'' ile kapatılır;
+  // $, `, ", \, !, * tamamen etkisizdir.
+  const posix = String(str || '').replace(/\r|\n/g, '').replace(/\\/g, '/');
+  return "'" + posix.replace(/'/g, "'\\''") + "'";
+}
+
+function buildQuarantineTargetWin(fullPath, usedTargets) {
+  const clean = String(fullPath || '').replace(/\//g, '\\');
+  const hasDrive = /^[A-Za-z]:\\/.test(clean);
+  const driveRoot = hasDrive ? clean.substring(0, 3) : 'C:\\';
+  const relPath = hasDrive ? clean.substring(3) : clean.replace(/^\\+/, '');
+  const lastSep = relPath.lastIndexOf('\\');
+  const relDir = lastSep >= 0 ? relPath.substring(0, lastSep) : '';
+  const fileName = lastSep >= 0 ? relPath.substring(lastSep + 1) : relPath;
+  const baseDir = relDir ? `${driveRoot}_SILINECEK_KOPYALAR\\${relDir}` : `${driveRoot}_SILINECEK_KOPYALAR`;
+
+  let candidate = `${baseDir}\\${fileName}`;
+  let idx = 1;
+  while (usedTargets.has(candidate.toLowerCase())) {
+    const dot = fileName.lastIndexOf('.');
+    const stem = dot > 0 ? fileName.substring(0, dot) : fileName;
+    const ext = dot > 0 ? fileName.substring(dot) : '';
+    candidate = `${baseDir}\\${stem}_kopya_${idx}${ext}`;
+    idx++;
+  }
+  usedTargets.add(candidate.toLowerCase());
+  return { destDir: baseDir, destFile: candidate };
+}
+
+function buildQuarantineTargetPosix(fullPath, usedTargets) {
+  const posix = String(fullPath || '').replace(/\\/g, '/').replace(/^[A-Za-z]:/, '');
+  const relPath = posix.replace(/^\/+/, '');
+  const lastSep = relPath.lastIndexOf('/');
+  const relDir = lastSep >= 0 ? relPath.substring(0, lastSep) : '';
+  const fileName = lastSep >= 0 ? relPath.substring(lastSep + 1) : relPath;
+  const baseDir = relDir ? `./_SILINECEK_KOPYALAR/${relDir}` : `./_SILINECEK_KOPYALAR`;
+
+  let candidate = `${baseDir}/${fileName}`;
+  let idx = 1;
+  while (usedTargets.has(candidate)) {
+    const dot = fileName.lastIndexOf('.');
+    const stem = dot > 0 ? fileName.substring(0, dot) : fileName;
+    const ext = dot > 0 ? fileName.substring(dot) : '';
+    candidate = `${baseDir}/${stem}_kopya_${idx}${ext}`;
+    idx++;
+  }
+  usedTargets.add(candidate);
+  return { destDir: baseDir, destFile: candidate };
 }
 
 function generateScriptText() {
@@ -517,9 +588,7 @@ function generateScriptText() {
   if (currentPlatform === 'powershell') {
     const entriesPs = paths.map(p => {
       const meta = fileSafetyMap.get(p) || { hash: '', size: 0, keeper: '' };
-      const escP = p.replace(/`/g, '``').replace(/\$/g, '`$');
-      const escK = (meta.keeper || '').replace(/`/g, '``').replace(/\$/g, '`$');
-      return `    @{ Path = "${escP}"; Hash = "${meta.hash}"; Size = ${meta.size}; Keeper = "${escK}" }`;
+      return `    @{ Path = ${escapePsLiteral(p)}; Hash = ${escapePsLiteral(meta.hash)}; Size = ${Number(meta.size) || 0}; Keeper = ${escapePsLiteral(meta.keeper)} }`;
     }).join(',\n');
 
     if (isSafe) {
@@ -530,21 +599,25 @@ function generateScriptText() {
              `# ========================================================\n` +
              `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8\n` +
              `$ErrorActionPreference = "Continue"\n\n` +
-             `$targetRoot = "_SILINECEK_KOPYALAR"\n` +
-             `Write-Host "Kopya dosyalar SHA-256 doğrulamasıyla güvenli karantinaya taşınıyor..." -ForegroundColor Cyan\n\n` +
+             `$targetRoot = '_SILINECEK_KOPYALAR'\n` +
+             `Write-Host "Kopya dosyalar SHA-256 ve çakışma kontrolüyle güvenli karantinaya taşınıyor..." -ForegroundColor Cyan\n\n` +
              `$items = @(\n${entriesPs}\n)\n\n` +
              `$success = 0; $fail = 0\n` +
              `foreach ($item in $items) {\n` +
              `    $f = $item.Path\n` +
              `    $k = $item.Keeper\n` +
-             `    if (-not (Test-Path -LiteralPath $k)) {\n` +
+             `    if (-not $k -or -not (Test-Path -LiteralPath $k)) {\n` +
              `        Write-Host "  [X Atlandı] Korunacak kopya bulunamadı: $k" -ForegroundColor Red; $fail++; continue\n` +
+             `    }\n` +
+             `    if ($f -eq $k) {\n` +
+             `        Write-Host "  [X Atlandı] Hedef ile korunacak dosya aynı: $f" -ForegroundColor Red; $fail++; continue\n` +
              `    }\n` +
              `    if (Test-Path -LiteralPath $f) {\n` +
              `        try {\n` +
              `            $curHash = (Get-FileHash -LiteralPath $f -Algorithm SHA256).Hash.ToUpper()\n` +
-             `            if ($item.Hash -and ($curHash -ne $item.Hash)) {\n` +
-             `                Write-Host "  [X Atlandı] Dosya içeriği değişmiş (SHA-256 uyuşmuyor): $f" -ForegroundColor Yellow; $fail++; continue\n` +
+             `            $keepHash = (Get-FileHash -LiteralPath $k -Algorithm SHA256).Hash.ToUpper()\n` +
+             `            if ($item.Hash -and (($curHash -ne $item.Hash) -or ($keepHash -ne $item.Hash))) {\n` +
+             `                Write-Host "  [X Atlandı] Dosya veya korunacak kopya değişmiş (SHA-256 uyuşmuyor): $f" -ForegroundColor Yellow; $fail++; continue\n` +
              `            }\n` +
              `            $fileObj = Get-Item -LiteralPath $f -Force\n` +
              `            $driveRoot = $fileObj.PSDrive.Name + ":\\\\"\n` +
@@ -552,7 +625,16 @@ function generateScriptText() {
              `            $destFolder = Join-Path (Join-Path $driveRoot $targetRoot) $relDir\n` +
              `            if (-not (Test-Path -LiteralPath $destFolder)) { New-Item -ItemType Directory -Path $destFolder -Force | Out-Null }\n` +
              `            $destFile = Join-Path $destFolder $fileObj.Name\n` +
-             `            Move-Item -LiteralPath $f -Destination $destFile -Force -ErrorAction Stop\n` +
+             `            if (Test-Path -LiteralPath $destFile) {\n` +
+             `                $base = [System.IO.Path]::GetFileNameWithoutExtension($fileObj.Name)\n` +
+             `                $ext  = [System.IO.Path]::GetExtension($fileObj.Name)\n` +
+             `                $idx  = 1\n` +
+             `                while (Test-Path -LiteralPath $destFile) {\n` +
+             `                    $destFile = Join-Path $destFolder ("{0}_kopya_{1}{2}" -f $base, $idx, $ext)\n` +
+             `                    $idx++\n` +
+             `                }\n` +
+             `            }\n` +
+             `            Move-Item -LiteralPath $f -Destination $destFile -ErrorAction Stop\n` +
              `            Write-Host "  [✓ Taşındı] $f -> $destFile" -ForegroundColor Green\n` +
              `            $success++\n` +
              `        } catch {\n` +
@@ -564,7 +646,7 @@ function generateScriptText() {
              `    }\n` +
              `}\n\n` +
              `Write-Host "\\nİşlem Tamamlandı! Başarılı: $success | Hata/Atlanan: $fail" -ForegroundColor Cyan\n` +
-             `Write-Host "Dosyalarınız klasör yapısı korunarak '_SILINECEK_KOPYALAR' altına taşındı." -ForegroundColor Yellow\n` +
+             `Write-Host "Dosyalarınız çakışmasız klasör yapısıyla '_SILINECEK_KOPYALAR' altına taşındı." -ForegroundColor Yellow\n` +
              `pause\n`;
     } else {
       return `# ========================================================\n` +
@@ -581,14 +663,18 @@ function generateScriptText() {
              `foreach ($item in $items) {\n` +
              `    $f = $item.Path\n` +
              `    $k = $item.Keeper\n` +
-             `    if (-not (Test-Path -LiteralPath $k)) {\n` +
+             `    if (-not $k -or -not (Test-Path -LiteralPath $k)) {\n` +
              `        Write-Host "  [X Atlandı] Korunacak kopya bulunamadı: $k" -ForegroundColor Red; continue\n` +
+             `    }\n` +
+             `    if ($f -eq $k) {\n` +
+             `        Write-Host "  [X Atlandı] Hedef ile korunacak dosya aynı: $f" -ForegroundColor Red; continue\n` +
              `    }\n` +
              `    if (Test-Path -LiteralPath $f) {\n` +
              `        try {\n` +
              `            $curHash = (Get-FileHash -LiteralPath $f -Algorithm SHA256).Hash.ToUpper()\n` +
-             `            if ($item.Hash -and ($curHash -ne $item.Hash)) {\n` +
-             `                Write-Host "  [X Atlandı] Dosya içeriği değişmiş (SHA-256 uyuşmuyor): $f" -ForegroundColor Yellow; continue\n` +
+             `            $keepHash = (Get-FileHash -LiteralPath $k -Algorithm SHA256).Hash.ToUpper()\n` +
+             `            if ($item.Hash -and (($curHash -ne $item.Hash) -or ($keepHash -ne $item.Hash))) {\n` +
+             `                Write-Host "  [X Atlandı] Dosya veya korunacak kopya değişmiş (SHA-256 uyuşmuyor): $f" -ForegroundColor Yellow; continue\n` +
              `            }\n` +
              `            Remove-Item -LiteralPath $f -Force -ErrorAction Stop\n` +
              `            Write-Host "  [✓ Silindi] $f" -ForegroundColor Green\n` +
@@ -605,24 +691,34 @@ function generateScriptText() {
   }
 
   if (currentPlatform === 'cmd') {
+    const usedWinTargets = new Set();
     if (isSafe) {
       const lines = [
         `@echo off`,
         `chcp 65001 > nul`,
-        `title Arşiv 360 - Kopya Taşıma`,
+        `title Arşiv 360 - Güvenli Kopya Taşıma`,
         `echo ========================================================`,
-        `echo Arşiv 360 - Kopya Dosyaları _SILINECEKLER Klasörüne Taşıma`,
-        `echo Taşınacak Dosya: ${paths.length} adet (${totalSize})`,
+        `echo Arşiv 360 - Kopya Dosyaları _SILINECEK_KOPYALAR Klasörüne Taşıma`,
+        `echo Taşınacak Dosya: ${paths.length} adet (Teorik: ${totalSize})`,
         `echo ========================================================`,
         `echo.`,
         `pause`
       ];
       paths.forEach(p => {
-        const drv = p.substring(0, 2);
-        lines.push(`if not exist "${drv}\\_SILINECEK_KOPYALAR" mkdir "${drv}\\_SILINECEK_KOPYALAR" >nul 2>&1`);
-        lines.push(`move /y "${p}" "${drv}\\_SILINECEK_KOPYALAR\\" >nul 2>&1 && echo [OK] ${p} || echo [HATA] ${p}`);
+        const meta = fileSafetyMap.get(p) || { keeper: '' };
+        const qt = buildQuarantineTargetWin(p, usedWinTargets);
+        const srcCmd = escapeCmdLiteral(p);
+        const keepCmd = escapeCmdLiteral(meta.keeper);
+        const dstDirCmd = escapeCmdLiteral(qt.destDir);
+        const dstFileCmd = escapeCmdLiteral(qt.destFile);
+        lines.push(`if not exist "${keepCmd}" ( echo [ATLANDI - Korunacak kopya yok] "${srcCmd}" ) else (`);
+        lines.push(`  if not exist "${dstDirCmd}" mkdir "${dstDirCmd}" >nul 2>&1`);
+        lines.push(`  if exist "${dstFileCmd}" ( echo [ATLANDI - Hedefte dosya var] "${dstFileCmd}" ) else (`);
+        lines.push(`    move /-y "${srcCmd}" "${dstFileCmd}" >nul 2>&1 && echo [OK] "${srcCmd}" || echo [HATA] "${srcCmd}"`);
+        lines.push(`  )`);
+        lines.push(`)`);
       });
-      lines.push(`echo.`, `echo İşlem tamamlandı. Dosyalar _SILINECEK_KOPYALAR klasörüne taşındı.`, `pause`);
+      lines.push(`echo.`, `echo İşlem tamamlandı. Dosyalar klasör yapısı korunarak _SILINECEK_KOPYALAR altına taşındı.`, `pause`);
       return lines.join('\n');
     } else {
       const lines = [
@@ -631,14 +727,19 @@ function generateScriptText() {
         `title Arşiv 360 - Kalıcı Kopya Silme`,
         `echo ========================================================`,
         `echo DİKKAT: ${paths.length} adet dosya kalıcı olarak silinecek!`,
-        `echo Kurtarılacak Alan: ${totalSize}`,
+        `echo Teorik Kurtarılacak Alan: ${totalSize}`,
         `echo ========================================================`,
-        `set /p onay="Onaylıyor musunuz? (E/H): "`,
-        `if /i not "%onay%"=="E" exit /b`,
+        `set /p onay="Onaylıyor musunuz? (EVET yazın): "`,
+        `if /i not "%onay%"=="EVET" exit /b`,
         `echo.`
       ];
       paths.forEach(p => {
-        lines.push(`del /f /q "${p}" 2>nul && echo [SILINDI] ${p} || echo [BULUNAMADI/HATA] ${p}`);
+        const meta = fileSafetyMap.get(p) || { keeper: '' };
+        const srcCmd = escapeCmdLiteral(p);
+        const keepCmd = escapeCmdLiteral(meta.keeper);
+        lines.push(`if not exist "${keepCmd}" ( echo [ATLANDI - Korunacak kopya yok] "${srcCmd}" ) else (`);
+        lines.push(`  del /f /q "${srcCmd}" 2>nul && echo [SILINDI] "${srcCmd}" || echo [BULUNAMADI/HATA] "${srcCmd}"`);
+        lines.push(`)`);
       });
       lines.push(`echo.`, `echo Tamamlandı.`, `pause`);
       return lines.join('\n');
@@ -646,32 +747,76 @@ function generateScriptText() {
   }
 
   if (currentPlatform === 'bash') {
+    const usedPosixTargets = new Set();
     const lines = [
       `#!/usr/bin/env bash`,
       `# ========================================================`,
-      `# Arşiv 360 - Kopya Dosya Temizleme Betiği (macOS & Linux)`,
-      `# Dosya Sayısı: ${paths.length} adet (${totalSize})`,
+      `# Arşiv 360 - Güvenli Kopya Dosya Temizleme Betiği (macOS & Linux)`,
+      `# Dosya Sayısı: ${paths.length} adet (Teorik: ${totalSize})`,
       `# ========================================================`,
       `set -euo pipefail`,
+      `calc_sha256() {`,
+      `  if command -v sha256sum >/dev/null 2>&1; then`,
+      `    sha256sum "$1" | awk '{print toupper($1)}'`,
+      `  elif command -v shasum >/dev/null 2>&1; then`,
+      `    shasum -a 256 "$1" | awk '{print toupper($1)}'`,
+      `  else`,
+      `    echo ""`,
+      `  fi`,
+      `}`,
       `echo "Toplam ${paths.length} dosya işlenecek..."`
     ];
     if (isSafe) {
-      lines.push(
-        `mkdir -p "./_SILINECEK_KOPYALAR"`,
-        `echo "Dosyalar ./_SILINECEK_KOPYALAR klasörüne taşınıyor..."`
-      );
+      lines.push(`echo "Dosyalar klasör yapısı korunarak ./_SILINECEK_KOPYALAR altına taşınıyor..."`);
       paths.forEach(p => {
-        const posixPath = p.replace(/\\/g, '/');
-        lines.push(`mv -f "${posixPath}" "./_SILINECEK_KOPYALAR/" 2>/dev/null || true`);
+        const meta = fileSafetyMap.get(p) || { hash: '', keeper: '' };
+        const qt = buildQuarantineTargetPosix(p, usedPosixTargets);
+        const srcLit = escapeBashLiteral(p);
+        const keepLit = escapeBashLiteral(meta.keeper);
+        const dstDirLit = escapeBashLiteral(qt.destDir);
+        const dstFileLit = escapeBashLiteral(qt.destFile);
+        const expHashLit = escapeBashLiteral(meta.hash);
+        lines.push(
+          `src=${srcLit}; keep=${keepLit}; dst_dir=${dstDirLit}; dst=${dstFileLit}; exp_hash=${expHashLit}`,
+          `if [ ! -f "$keep" ]; then`,
+          `  echo "  [X Atlandı] Korunacak kopya bulunamadı: $keep"`,
+          `elif [ -f "$src" ]; then`,
+          `  cur_h="$(calc_sha256 "$src")"`,
+          `  keep_h="$(calc_sha256 "$keep")"`,
+          `  if [ -n "$exp_hash" ] && [ -n "$cur_h" ] && { [ "$cur_h" != "$exp_hash" ] || [ "$keep_h" != "$exp_hash" ]; }; then`,
+          `    echo "  [X Atlandı] SHA-256 uyuşmuyor: $src"`,
+          `  else`,
+          `    mkdir -p "$dst_dir"`,
+          `    if [ -e "$dst" ]; then dst="\${dst}_$(date +%s)_$$"; fi`,
+          `    mv -n "$src" "$dst" && echo "  [✓ Taşındı] $src -> $dst"`,
+          `  fi`,
+          `fi`
+        );
       });
     } else {
       lines.push(
-        `read -p "Dosyaları kalıcı olarak silmek istiyor musunuz? (e/h): " onay`,
-        `if [[ "$onay" != "e" && "$onay" != "E" ]]; then echo "İptal edildi."; exit 0; fi`
+        `read -r -p "Dosyaları kalıcı olarak silmek istiyor musunuz? (EVET yazın): " onay`,
+        `if [[ "$onay" != "EVET" ]]; then echo "İptal edildi."; exit 0; fi`
       );
       paths.forEach(p => {
-        const posixPath = p.replace(/\\/g, '/');
-        lines.push(`rm -f "${posixPath}"`);
+        const meta = fileSafetyMap.get(p) || { hash: '', keeper: '' };
+        const srcLit = escapeBashLiteral(p);
+        const keepLit = escapeBashLiteral(meta.keeper);
+        const expHashLit = escapeBashLiteral(meta.hash);
+        lines.push(
+          `src=${srcLit}; keep=${keepLit}; exp_hash=${expHashLit}`,
+          `if [ ! -f "$keep" ]; then`,
+          `  echo "  [X Atlandı] Korunacak kopya bulunamadı: $keep"`,
+          `elif [ -f "$src" ]; then`,
+          `  cur_h="$(calc_sha256 "$src")"`,
+          `  keep_h="$(calc_sha256 "$keep")"`,
+          `  if [ -n "$exp_hash" ] && [ -n "$cur_h" ] && { [ "$cur_h" != "$exp_hash" ] || [ "$keep_h" != "$exp_hash" ]; }; then`,
+          `    echo "  [X Atlandı] SHA-256 uyuşmuyor: $src"`,
+          `  else`,
+          `    rm -f -- "$src" && echo "  [✓ Silindi] $src"`,
+          `  fi`,
+          `fi`
+        );
       });
     }
     lines.push(`echo "İşlem tamamlandı!"`);

@@ -513,26 +513,35 @@ ipcMain.handle('move-files', async (_event, { filePaths, destinationFolder }: { 
         continue
       }
 
+      const driveMatch = src.match(/^([a-zA-Z]:)[\\/]/)
+      const driveRoot = driveMatch ? `${driveMatch[1]}\\` : 'C:\\'
+      const relPath = driveMatch ? src.substring(driveMatch[0].length) : src.replace(/^[\\/]+/, '')
+      const fileName = basename(src)
+      const relDir = relPath.length > fileName.length ? relPath.substring(0, relPath.length - fileName.length).replace(/[\\/]+$/, '') : ''
+
       let destDir = destinationFolder
       if (!destDir) {
-        // Default to _SILINECEK_KOPYALAR on the source drive
-        const driveMatch = src.match(/^([a-zA-Z]:)/)
-        const drive = driveMatch ? driveMatch[1] : 'C:'
-        destDir = join(`${drive}\\`, '_SILINECEK_KOPYALAR')
+        // Hedef klasör belirtilmediğinde dosyanın ait olduğu sürücü kökündeki _SILINECEK_KOPYALAR altında göreli yolu koru
+        destDir = relDir ? join(driveRoot, '_SILINECEK_KOPYALAR', relDir) : join(driveRoot, '_SILINECEK_KOPYALAR')
+      } else if (relDir && !destinationFolder.includes(relDir)) {
+        destDir = join(destinationFolder, relDir)
       }
 
       if (!fs.existsSync(destDir)) {
         fs.mkdirSync(destDir, { recursive: true })
       }
 
-      const fileName = basename(src)
       let destPath = join(destDir, fileName)
 
-      // If file with same name already exists in destination, append timestamp
+      // Karantina hedefinde aynı isimli dosya varsa ASLA üzerine yazma; _kopya_N soneki ekle
       if (fs.existsSync(destPath)) {
         const ext = extname(fileName)
         const nameWithoutExt = basename(fileName, ext)
-        destPath = join(destDir, `${nameWithoutExt}_${Date.now()}${ext}`)
+        let idx = 1
+        while (fs.existsSync(destPath)) {
+          destPath = join(destDir, `${nameWithoutExt}_kopya_${idx}${ext}`)
+          idx++
+        }
       }
 
       try {

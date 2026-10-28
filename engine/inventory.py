@@ -36,6 +36,8 @@ def crawl_and_index(
     vol_guid = vol_info.guid
     total_files = 0
     total_bytes = 0
+    permission_errors_count = 0
+    symlinks_skipped_count = 0
     batch = []
     t_start = time.time()
 
@@ -49,8 +51,10 @@ def crawl_and_index(
                     # Sembolik bağlantıları ve junction döngülerini takip etme
                     try:
                         if entry.is_symlink():
+                            symlinks_skipped_count += 1
                             continue
                     except (PermissionError, OSError):
+                        permission_errors_count += 1
                         continue
 
                     full_path = entry.path
@@ -65,6 +69,7 @@ def crawl_and_index(
                             stack.append(full_path)
                             continue
                     except (PermissionError, OSError):
+                        permission_errors_count += 1
                         continue
 
                     # Dosya ise üstveri al
@@ -81,6 +86,7 @@ def crawl_and_index(
                             except Exception:
                                 file_id = 0
                     except (PermissionError, OSError):
+                        permission_errors_count += 1
                         continue
 
                     filename = entry.name
@@ -114,6 +120,7 @@ def crawl_and_index(
                             progress_callback(total_files, total_bytes, current_dir)
 
         except (PermissionError, OSError):
+            permission_errors_count += 1
             continue
 
     # Kalan son paketi yaz
@@ -125,10 +132,15 @@ def crawl_and_index(
     if progress_callback:
         progress_callback(total_files, total_bytes, "Tamamlandı")
 
+    is_complete = permission_errors_count == 0
     return {
         "total_files": total_files,
         "total_bytes": total_bytes,
         "elapsed_seconds": round(elapsed, 2),
         "files_per_second": round(total_files / elapsed, 1) if elapsed > 0 else total_files,
-        "volume_guid": vol_guid
+        "volume_guid": vol_guid,
+        "permission_errors_count": permission_errors_count,
+        "symlinks_skipped_count": symlinks_skipped_count,
+        "is_complete_scan": is_complete,
+        "scan_status": "COMPLETE" if is_complete else "PARTIAL_WITH_ERRORS",
     }

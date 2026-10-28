@@ -309,10 +309,13 @@ def get_full_hash_detailed(filepath, expected_size=None, block_size=FULL_HASH_BL
                     return FullHashResult(None, None, "MODIFIED", "fd_stat_changed", True)
 
                 chunk_idx = 0
+                head_canary = None
                 while True:
                     buf = f.read(block_size)
                     if not buf:
                         break
+                    if head_canary is None:
+                        head_canary = hashlib.sha256(buf[:SAMPLE_EDGE_BLOCK_SIZE]).digest()
                     h.update(buf)
                     bytes_read += len(buf)
                     chunk_idx += 1
@@ -320,6 +323,17 @@ def get_full_hash_detailed(filepath, expected_size=None, block_size=FULL_HASH_BL
                         on_chunk_read(filepath, chunk_idx, bytes_read)
                     if bytes_read > stat_before.size:
                         break
+
+                # Aynı zaman damgası dilimi (sub-tick) içinde gerçekleşen eşzamanlı üzerine yazmaları
+                # yakalamak için dosya başlangıç bloğunu (canary) okuma sonunda doğrula
+                if head_canary is not None and bytes_read > 0:
+                    f.seek(0)
+                    recheck_buf = f.read(min(SAMPLE_EDGE_BLOCK_SIZE, bytes_read))
+                    if hashlib.sha256(recheck_buf).digest() != head_canary:
+                        had_modification = True
+                        if attempts <= max_retries:
+                            continue
+                        return FullHashResult(None, None, "MODIFIED", "content_canary_changed_during_hash", True)
 
             stat_after = capture_file_stat(filepath)
             if not verify_stat_unchanged(
@@ -838,12 +852,13 @@ def scan_subtree(root_path):
                                 continue
                             st = entry.stat(follow_symlinks=False)
                             sz = st.st_size
+                            mtime_ns = getattr(st, "st_mtime_ns", int(st.st_mtime * 1e9))
                             local_count += 1
                             local_bytes += sz
                             if sz == 0:
                                 local_zero_files.append(entry.path)
                             else:
-                                local_size_to_files[sz].append(entry.path)
+                                local_size_to_files[sz].append((entry.path, mtime_ns))
                     except (PermissionError, OSError):
                         local_perm_errors += 1
                         continue
@@ -888,7 +903,8 @@ def discover_drive_branches(drive_path):
                             excluded_skipped += 1
                             continue
                         st = entry.stat(follow_symlinks=False)
-                        root_files.append((entry.path, st.st_size))
+                        mtime_ns = getattr(st, "st_mtime_ns", int(st.st_mtime * 1e9))
+                        root_files.append((entry.path, st.st_size, mtime_ns))
                 except (PermissionError, OSError):
                     perm_errors += 1
                     continue
@@ -982,10 +998,26 @@ def safe_quarantine_or_delete(
                 errors.append(f"Korunacak kopya doğrulanamadığı için işlem iptal edildi: {t}")
             continue
 
+        # Varsa bağımsız sistem koruma motorunu (ProtectionEngine) devreye al
+        prot_engine = None
+        try:
+            from engine.protection_engine import ProtectionEngine
+            prot_engine = ProtectionEngine()
+        except Exception:
+            prot_engine = None
+
         for target_path in targets:
             if normalize_cache_key(target_path) == normalize_cache_key(verified_keeper):
                 skipped.append(target_path)
                 continue
+            if prot_engine is not None:
+                try:
+                    prot_engine.assert_can_delete_or_move(target_path)
+                except Exception as pe:
+                    skipped.append(target_path)
+                    errors.append(str(pe))
+                    continue
+
             current_hash = get_full_hash(target_path, expected_size=expected_size)
             if current_hash != expected_hash:
                 skipped.append(target_path)
@@ -999,9 +1031,13 @@ def safe_quarantine_or_delete(
                     base_root = (drv + "\\") if drv else os.path.dirname(os.path.abspath(target_path))
                     dest_path = os.path.join(base_root, quarantine_dir_name, rel_tail)
                     os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+                    # Çakışmasız karantina hedefi: mevcut dosyanın üzerine ASLA yazma
                     if os.path.exists(dest_path):
                         stem, ext = os.path.splitext(dest_path)
-                        dest_path = f"{stem}_{int(time.time() * 1000)}{ext}"
+                        idx = 1
+                        while os.path.exists(dest_path):
+                            dest_path = f"{stem}_kopya_{idx}{ext}"
+                            idx += 1
                     os.replace(target_path, dest_path)
                     moved_or_deleted.append({"source": target_path, "destination": dest_path, "mode": "quarantine"})
                 elif mode == "delete":
@@ -1028,6 +1064,7 @@ def scan_directories(
     num_workers=None,
     max_retries=1,
     on_chunk_read=None,
+    include_zero_byte_duplicates=False,
     write_reports=True,
     quiet=False,
 ):
@@ -1054,6 +1091,7 @@ def scan_directories(
 
     _log(f"[1/4] Seçilen dizin/sürücü paralel taranıyor ({num_workers} iş parçacığı): {', '.join(target_drives)}...")
 
+    # size_to_files[sz] -> list of (filepath, stage1_mtime_ns)
     size_to_files = defaultdict(list)
     total_files = 0
     total_bytes = 0
@@ -1065,15 +1103,18 @@ def scan_directories(
     excluded_skipped_count = 0
     hash_read_errors_count = 0
     modified_during_scan_count = 0
+    skipped_drives_count = 0
 
     for drive in target_drives:
         try:
             if not os.path.exists(drive):
+                skipped_drives_count += 1
                 _log(f"Uyarı: {drive} bulunamadı veya takılı değil, atlanıyor.")
                 continue
             os.scandir(drive).close()
         except (PermissionError, OSError) as e:
             permission_errors_count += 1
+            skipped_drives_count += 1
             _log(f"Uyarı: {drive} sürücüsüne erişilemedi ({e}), atlanıyor.")
             continue
 
@@ -1086,13 +1127,13 @@ def scan_directories(
         excluded_skipped_count += r_excl
         _log(f"     Keşfedilen ana dal: {len(subdirs)} klasör, {len(root_files)} kök dosya")
 
-        for p, sz in root_files:
+        for p, sz, mtime_ns in root_files:
             total_files += 1
             total_bytes += sz
             if sz == 0:
                 zero_files.append(p)
             else:
-                size_to_files[sz].append(p)
+                size_to_files[sz].append((p, mtime_ns))
 
         if subdirs:
             with ThreadPoolExecutor(max_workers=num_workers) as executor:
@@ -1117,8 +1158,8 @@ def scan_directories(
                         symlinks_skipped_count += b_sym
                         excluded_skipped_count += b_excl
                         zero_files.extend(b_zero)
-                        for sz, paths in b_sizes.items():
-                            size_to_files[sz].extend(paths)
+                        for sz, path_mtime_list in b_sizes.items():
+                            size_to_files[sz].extend(path_mtime_list)
                         _log(f"     [{done_branches}/{len(subdirs)}] Dal tamamlandı: {os.path.basename(branch_dir)} ({b_count} dosya)")
                     except Exception as e:
                         permission_errors_count += 1
@@ -1132,8 +1173,8 @@ def scan_directories(
     _log(f"Toplam taranan gerçek dosya: {total_files:,} ({format_size(total_bytes)})")
 
     # Aşama 2: Aynı boyutta en az 2 dosya olan adayları filtrele
-    candidates = {s: paths for s, paths in size_to_files.items() if len(paths) > 1}
-    cand_count = sum(len(p) for p in candidates.values())
+    candidates = {s: items for s, items in size_to_files.items() if len(items) > 1}
+    cand_count = sum(len(items) for items in candidates.values())
     _log(f"[2/4] Aynı boyutta {cand_count:,} adet potansiyel kopya dosya bulundu ({len(candidates):,} farklı boyut grubu).")
 
     # Önbellek başlat (JSON varsayılan, SQLite opsiyonel)
@@ -1153,12 +1194,24 @@ def scan_directories(
     # full_hash_groups[(sz, full_sha256)] -> list of (filepath, FileStatSnapshot)
     full_hash_groups = defaultdict(list)
 
+    # Sıfır baytlık dosyalar: Varsayılan olarak ayrı izlenir, istenirse (--include-zero-byte) kopya grubuna dahil edilir
+    if include_zero_byte_duplicates and len(zero_files) > 1:
+        empty_sha256 = hashlib.sha256(b"").hexdigest()
+        for zp in zero_files:
+            z_stat = capture_file_stat(zp)
+            if z_stat is not None and z_stat.size == 0:
+                full_hash_groups[(0, empty_sha256)].append((zp, z_stat))
+            elif z_stat is not None and z_stat.size != 0:
+                modified_during_scan_count += 1
+            else:
+                hash_read_errors_count += 1
+
     if cand_count == 0:
         _log("Mükerrer dosya adayı bulunamadı, temiz rapor oluşturuluyor...")
     else:
         # Aşama 3: Hızlı örnek hash ön elemesi (Baş 64 KiB + Son 64 KiB veya <=128 KiB için Tam SHA-256)
         _log("[3/4] Ön eleme hash kontrolü (Baş + Son 64KB) paralel yürütülüyor...")
-        all_cand_items = [(p, sz) for sz, paths in candidates.items() for p in paths]
+        all_cand_items = [(p, sz, st1_mtime) for sz, items in candidates.items() for (p, st1_mtime) in items]
         # Gruplama anahtarı (sz, hash_kind, digest) olarak tutulur; örnek hash ile tam hash asla karışmaz
         edge_hash_groups = defaultdict(list)
         processed_edges = 0
@@ -1168,8 +1221,13 @@ def scan_directories(
         max_pending = max(16, num_workers * 4)
 
         def _calc_edge(item):
-            p, sz = item
-            return p, sz, get_quick_sample_hash_detailed(p, sz, max_retries=max_retries)
+            p, sz, st1_mtime = item
+            qres = get_quick_sample_hash_detailed(p, sz, max_retries=max_retries)
+            # Aşama 1 (boyut keşfi) ile Aşama 3 (örnek hash) arasında dosyanın mtime_ns değerinin değişmediğini doğrula
+            if qres.status == "OK" and qres.stat_snapshot is not None and st1_mtime is not None:
+                if qres.stat_snapshot.mtime_ns != st1_mtime:
+                    qres = QuickHashResult(None, None, None, "MODIFIED", "mtime_changed_since_stage1")
+            return p, sz, qres
 
         with ThreadPoolExecutor(max_workers=num_workers) as executor:
             for p, sz, qres in _run_bounded_pool(executor, _calc_edge, all_cand_items, max_pending=max_pending):
@@ -1378,16 +1436,29 @@ def scan_directories(
     drives_title = format_drives_title(target_drives)
     report_title = f"{drives_title} Kopya Dosya Raporu"
 
+    is_complete_scan = (
+        permission_errors_count == 0
+        and hash_read_errors_count == 0
+        and modified_during_scan_count == 0
+        and skipped_drives_count == 0
+    )
+    scan_status = "COMPLETE" if is_complete_scan else "PARTIAL_WITH_ERRORS"
+
     summary = {
         "report_title": report_title,
         "drives_title": drives_title,
         "scan_date": time.strftime("%Y-%m-%d %H:%M:%S"),
         "elapsed_seconds": elapsed,
+        "scan_status": scan_status,
+        "is_complete_scan": is_complete_scan,
         "scanned_drives": target_drives,
+        "skipped_drives_count": skipped_drives_count,
         "total_files_scanned": total_files,
         "total_bytes_scanned": total_bytes,
         "total_size_scanned_formatted": format_size(total_bytes),
         "zero_byte_files_count": len(zero_files),
+        "zero_byte_policy": "included_in_duplicates" if include_zero_byte_duplicates else "tracked_separately_0B_waste",
+        "zero_byte_files_sample": zero_files[:100],
         "duplicate_groups_count": len(duplicates),
         "duplicate_files_count": sum(g["count"] for g in duplicates),
         "total_wasted_bytes": total_wasted,
@@ -1429,7 +1500,7 @@ def scan_directories(
         _log(f"✓ Hızlı & Lazy-Loaded Rapor Klasörü oluşturuldu: {report_dir / 'index.html'}")
         _log(f"✓ HTML rapor yönlendirmesi kaydedildi: {html_path}")
 
-        _log(f"\nİşlem Başarıyla Tamamlandı! Toplam Süre: {elapsed} sn")
+        _log(f"\nİşlem Başarıyla Tamamlandı! Toplam Süre: {elapsed} sn | Durum: {scan_status}")
         _log(f"Bulunan Kopya Grup Sayısı: {len(duplicates)} adet")
         _log(f"Teorik Kurtarılabilir Alan (İsraf): {format_size(total_wasted)}")
         if total_physical_wasted != total_wasted:
@@ -1442,6 +1513,7 @@ def main():
     cli_paths = []
     cache_backend = "json"
     num_workers = None
+    include_zero_byte = False
     args = sys.argv[1:]
     i = 0
     while i < len(args):
@@ -1452,6 +1524,10 @@ def main():
             continue
         elif arg == "--sqlite-cache":
             cache_backend = "sqlite"
+            i += 1
+            continue
+        elif arg in ("--include-zero-byte", "--sifir-bayt-dahil"):
+            include_zero_byte = True
             i += 1
             continue
         elif arg in ("--workers", "-w") and i + 1 < len(args):
@@ -1470,28 +1546,33 @@ def main():
         target_drives=target_drives,
         cache_backend=cache_backend,
         num_workers=num_workers,
+        include_zero_byte_duplicates=include_zero_byte,
         write_reports=True,
     )
 
 def generate_md(s, duplicates, md_path):
     report_title = s.get("report_title", "Kopya Dosya Analiz Raporu")
+    status_label = "✅ Tam Tarama (Eksiksiz)" if s.get("is_complete_scan", True) else "⚠️ Kısmi Tarama (Erişim/Doğrulama Uyarıları Mevcut)"
     lines = [
         f"# {report_title}\n",
+        f"- **Tarama Durumu:** {status_label}",
         f"- **Tarama Tarihi:** {s['scan_date']}",
         f"- **Tarama Süresi:** {s['elapsed_seconds']} saniye",
         f"- **Taranan Dizinler:** {', '.join(s.get('scanned_drives', []))}",
         f"- **Taranan Toplam Dosya:** {s['total_files_scanned']:,} dosya ({s['total_size_scanned_formatted']})",
+        f"- **Sıfır Baytlık (Boş) Dosyalar:** {s.get('zero_byte_files_count', 0)} adet *(Politika: {s.get('zero_byte_policy', 'tracked_separately_0B_waste')})*",
         f"- **Toplam Kopya Dosya Grubu:** {s['duplicate_groups_count']}",
         f"- **Toplam Kopya Dosya Sayısı:** {s['duplicate_files_count']}",
         f"- **Teorik Kurtarılabilir Toplam Alan (İsraf):** **{s['total_wasted_formatted']}**",
     ]
     if "total_physical_wasted_formatted" in s and s.get("total_physical_wasted_bytes") != s.get("total_wasted_bytes"):
         lines.append(f"- **Fiziksel Açılabilir Tahmini Alan (Hardlink Hariç):** **{s['total_physical_wasted_formatted']}**")
-    if s.get("permission_errors_count", 0) > 0 or s.get("hash_read_errors_count", 0) > 0 or s.get("modified_during_scan_count", 0) > 0:
+    if not s.get("is_complete_scan", True):
         lines.append(
-            f"- **Tarama Tanılama:** Erişim hatası: {s.get('permission_errors_count', 0)}, "
-            f"Okuma hatası: {s.get('hash_read_errors_count', 0)}, "
-            f"Tarama sırasında değişen/doğrulanamayan: {s.get('modified_during_scan_count', 0)}"
+            f"- **⚠️ Eksik / Doğrulanamayan Öğeler:** Erişim hatası: {s.get('permission_errors_count', 0)}, "
+            f"Hash okuma hatası: {s.get('hash_read_errors_count', 0)}, "
+            f"Tarama sırasında değiştiği için dışlanan: {s.get('modified_during_scan_count', 0)}, "
+            f"Erişilemeyen sürücü/kök: {s.get('skipped_drives_count', 0)}"
         )
     if s.get("cross_drive_groups_count", 0) > 0:
         lines.append(f"- **Çapraz Disk Kopyaları:** {s['cross_drive_groups_count']} grup ({s['cross_drive_wasted_formatted']})")
@@ -1559,6 +1640,23 @@ def generate_report_bundle(s, duplicates, report_dir, html_path):
     dynamic_filters_html = "\n        ".join(filter_btns)
 
     report_title = s.get("report_title", "Kopya Dosya Analiz Raporu")
+    is_complete = s.get("is_complete_scan", True)
+    status_badge_html = (
+        '<span style="color:#4ade80; font-weight:600;">✓ Tam Tarama</span>'
+        if is_complete
+        else '<span style="color:#fbbf24; font-weight:700;">⚠️ Kısmi Tarama (Uyarılar Var)</span>'
+    )
+    partial_warning_html = ""
+    if not is_complete:
+        partial_warning_html = f"""
+    <div style="background:rgba(245,158,11,0.12); border:1px solid rgba(245,158,11,0.4); color:#fde68a; padding:1rem 1.25rem; border-radius:12px; margin-bottom:1.5rem; font-size:0.9rem;">
+      <strong>⚠️ Kısmi / Eksik Tarama Uyarısı:</strong> Tarama sırasında bazı öğelere erişilemedi veya dosyalar değiştiği için doğrulama dışı bırakıldı
+      (Erişim hatası: <strong>{s.get('permission_errors_count', 0)}</strong> |
+      Hash okuma hatası: <strong>{s.get('hash_read_errors_count', 0)}</strong> |
+      Tarama sırasında değişen: <strong>{s.get('modified_during_scan_count', 0)}</strong> |
+      Atlanan kök/sürücü: <strong>{s.get('skipped_drives_count', 0)}</strong>).
+      Rapor yalnızca tam SHA-256 doğrulamasından geçen dosyaları içerir.
+    </div>"""
 
     # 4. Generate clean, lightweight index.html (<15KB)
     index_html = f"""<!DOCTYPE html>
@@ -1582,10 +1680,10 @@ def generate_report_bundle(s, duplicates, report_dir, html_path):
         <p>SHA-256 Hash Bütünlüğü ile Doğrulanmış Mükerrer Dosya ve Alan Kurtarma Analizi</p>
       </div>
       <div class="header-badge">
-        <span>🕒 {s['scan_date']}</span> • <span>⚡ {s['elapsed_seconds']} sn</span>
+        {status_badge_html} • <span>🕒 {s['scan_date']}</span> • <span>⚡ {s['elapsed_seconds']} sn</span>
       </div>
     </header>
-
+{partial_warning_html}
     <div class="stats-grid">
       <div class="stat-card">
         <div class="stat-title">Teorik Kurtarılabilir Alan (İsraf)</div>
@@ -1605,7 +1703,7 @@ def generate_report_bundle(s, duplicates, report_dir, html_path):
       <div class="stat-card">
         <div class="stat-title">Taranan Toplam Boyut</div>
         <div class="stat-value highlight-success">{s['total_size_scanned_formatted']}</div>
-        <div class="stat-sub">{s['total_files_scanned']:,} dosya incelendi</div>
+        <div class="stat-sub">{s['total_files_scanned']:,} dosya ({s.get('zero_byte_files_count', 0)} boş dosya)</div>
       </div>
     </div>
 
